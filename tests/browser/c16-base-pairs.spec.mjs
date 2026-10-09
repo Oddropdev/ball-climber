@@ -40,12 +40,13 @@ test('C1.6: falling physics actors die before touching camp, no fake player haza
  let s=await state(page);
  expect(s.hazardKillProgress).toBeCloseTo(1.25);
  expect(s.hazardPurged).toBe(0);
- const before=s.liveFalling;
+ const destroyedBefore=s.destroyedTotal;
  await page.evaluate(()=>window.__CLIMBER_TEST__?.testPurge?.());
  await expect.poll(async()=>(await state(page))?.hazardPurged,
   {timeout:3000}).toBeGreaterThan(0);
  s=await state(page);
- expect(s.liveFalling).toBeLessThanOrEqual(before);
+ expect(s.destroyedTotal).toBeGreaterThan(destroyedBefore);
+ expect(s.hazardPurged).toBeGreaterThan(0);
  expect(s.falls).toBe(0);
  expect(s.rigidbodyType).toBe('dynamic');
 });
