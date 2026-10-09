@@ -21,6 +21,9 @@ test('C1.0: real Level1 summit -> skin shop -> Level2/3 with clean Bullet teardo
  expect((await state(page)).rigidbodyType).toBe('dynamic');
  await physicsSummit(page);
  let snap=await state(page);
+ expect(snap.summitContactEvents).toBeGreaterThan(0);
+ expect(snap.verifiedSummitArrivals).toBe(1);
+ expect(snap.lastSummitContactProgress).toBeGreaterThan(46);
  expect(snap.summitEvents).toBe(1);
  expect(snap.onSummit).toBe(true);
  expect(snap.rigidbodyType).toBe('kinematic');
@@ -47,6 +50,7 @@ test('C1.0: real Level1 summit -> skin shop -> Level2/3 with clean Bullet teardo
  expect(await page.locator('#level-badge').innerText()).toContain('LEVEL 2');
  await page.screenshot({path:'test-results/c10-level2-stormwall.png'});
  await physicsSummit(page);
+ expect((await state(page)).verifiedSummitArrivals).toBe(2);
  await expect(page.locator('#shop-button')).toBeVisible();
  await page.locator('#start').click();
  snap=await state(page);
