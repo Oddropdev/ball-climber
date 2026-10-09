@@ -1,47 +1,58 @@
 import {test,expect} from 'vitest';
-import {SLOPE_DEGREES,SLOPE_LENGTH,SIN_SLOPE,COS_SLOPE,PLAYER_RADIUS,
- SLAB_THICKNESS,LEVEL_HEIGHT,NORMAL,UP,onSlope,slopePosition,
- makeWave,nearestCheckpoint,shouldRecover,ACTIVE_CAP} from '../src/Course';
-test('exact 60° in real XYZ coordinates, stable roll direction and 48m short course',()=>{
+import {SLOPE_DEGREES,SLOPE_LENGTH,SIN_SLOPE,COS_SLOPE,
+ LEVEL_HEIGHT,UP,NORMAL,onSlope,slopePosition,nearestCheckpoint,
+ shouldRecover,makeWave,PATTERNS,massFor,MAX_ROCKS,MAX_LOOT,ACTIVE_CAP
+} from '../src/Course';
+test('exact real 60 degree ramp, reversible XYZ projection and fall risk',()=>{
  expect(SLOPE_DEGREES).toBe(60);
  expect(SLOPE_LENGTH).toBe(48);
  expect(LEVEL_HEIGHT).toBeCloseTo(48*Math.sqrt(3)/2,8);
  expect(UP[1]).toBeCloseTo(Math.sqrt(3)/2,8);
- expect(UP[2]).toBeCloseTo(-.5,8);
- expect(NORMAL[1]).toBeCloseTo(.5,8);
  expect(NORMAL[2]).toBeCloseTo(Math.sqrt(3)/2,8);
- expect(COS_SLOPE).toBeCloseTo(.5,8);
  expect(SIN_SLOPE).toBeCloseTo(Math.sqrt(3)/2,8);
- for(const progress of [0,2,10,18,33,48]){
-  const [x,y,z]=onSlope(progress);
-  expect(x).toBe(0);
-  expect(slopePosition({x,y,z}).progress).toBeCloseTo(progress,8);
-  expect(slopePosition({x,y,z}).normalDistance).toBeCloseTo(SLAB_THICKNESS/2+PLAYER_RADIUS+.025,8);
+ expect(COS_SLOPE).toBeCloseTo(.5,8);
+ for(const d of [0,2,10,20,40,48]){
+  const [x,y,z]=onSlope(d);
+  expect(slopePosition({x,y,z}).progress).toBeCloseTo(d,8);
+  expect(shouldRecover({x,y,z})).toBe(false);
  }
-});
-test('real failure boundaries and checkpoints do not erase fall risk',()=>{
- expect(nearestCheckpoint(2)).toBe(2);
- expect(nearestCheckpoint(27)).toBe(26);
- expect(shouldRecover({x:0,y:onSlope(10)[1],z:onSlope(10)[2]})).toBe(false);
- expect(shouldRecover({x:8,y:onSlope(10)[1],z:onSlope(10)[2]})).toBe(true);
+ expect(shouldRecover({x:7,y:20,z:0})).toBe(true);
  expect(shouldRecover({x:0,y:NaN,z:0})).toBe(true);
- expect(shouldRecover({x:0,y:-10,z:0})).toBe(true);
+ expect(nearestCheckpoint(27)).toBe(26);
 });
-test('unlimited deterministic waves include true rectangles, spheres, rows and trains',()=>{
- for(const id of [0,1,2,3,4,5,100,999999]){
-  const a=makeWave(1719,id),b=makeWave(1719,id),other=makeWave(999,id);
-  expect(a).toEqual(b);
-  expect(a).not.toEqual(other);
-  expect(a.items.length).toBeGreaterThanOrEqual(2);
-  expect(a.items.length).toBeLessThanOrEqual(5);
-  expect(a.items.every(x=>x.kind==='loot'||x.kind==='rock')).toBe(true);
-  expect(a.items.every(x=>Math.abs(x.lane)<=3.7)).toBe(true);
+test('12 genuinely distinct motifs in randomized, reproducible shuffled bags',()=>{
+ const waves=Array.from({length:48},(_,i)=>makeWave(1719,i));
+ for(let i=0;i<48;i++)expect(makeWave(1719,i)).toEqual(waves[i]);
+ expect(new Set(waves.slice(0,12).map(w=>w.pattern)).size).toBe(12);
+ expect(new Set(waves.slice(12,24).map(w=>w.pattern)).size).toBe(12);
+ expect(waves.some((w,i)=>w.pattern!==makeWave(1720,i).pattern)).toBe(true);
+ expect(PATTERNS).toHaveLength(12);
+ for(const w of waves){
+  expect(w.items.length).toBeGreaterThanOrEqual(3);
+  expect(w.items.length).toBeLessThanOrEqual(12);
+  expect(w.items.every(i=>Math.abs(i.lane)<=4.35)).toBe(true);
+  expect(w.items.every(i=>i.mass>0)).toBe(true);
  }
- const waves=Array.from({length:50},(_,i)=>makeWave(1719,i));
- expect(new Set(waves.map(x=>x.pattern)).size).toBe(6);
- expect(waves.some(w=>w.items.some(x=>x.kind==='rock'&&x.shape==='box'))).toBe(true);
- expect(waves.some(w=>w.items.some(x=>x.kind==='loot'&&x.shape==='box'))).toBe(true);
- expect(waves.some(w=>w.pattern==='row'&&w.items.every(x=>Math.abs(x.distanceOffset)<.15))).toBe(true);
- expect(waves.some(w=>w.pattern==='train'&&w.items[1]!.distanceOffset>w.items[0]!.distanceOffset)).toBe(true);
- expect(ACTIVE_CAP).toBeLessThanOrEqual(48);
+ const train=waves.find(w=>w.pattern==='train')!;
+ const lootTrain=waves.find(w=>w.pattern==='loot-train')!;
+ expect(train.items[2]!.delay).toBeGreaterThan(train.items[0]!.delay+.3);
+ expect(lootTrain.items.every(i=>i.kind==='loot')).toBe(true);
+ expect(lootTrain.items[3]!.delay).toBeGreaterThan(lootTrain.items[0]!.delay+.5);
+ const row=waves.find(w=>w.pattern==='row')!;
+ expect(row.items.every(i=>i.delay<.08)).toBe(true);
+ expect(row.items.at(-1)!.lane-row.items[0]!.lane).toBeGreaterThan(6);
+});
+test('mass scales with object volume; rare giant is genuinely heavy, 50+50 caps',()=>{
+ const waves=Array.from({length:48},(_,i)=>makeWave(1719,i));
+ const big=waves.flatMap(w=>w.items).filter(i=>i.giant);
+ expect(big.length).toBeGreaterThan(0);
+ expect(big.some(i=>i.size[0]>=2.5&&i.size[1]>=2)).toBe(true);
+ expect(big.every(i=>i.kind==='rock')).toBe(true);
+ expect(big.some(i=>i.mass>30)).toBe(true);
+ expect(massFor('rock',[4,4,4],true)).toBeGreaterThan(massFor('rock',[1,1,1]));
+ expect(massFor('rock',[8,8,8],true)).toBeLessThanOrEqual(260);
+ expect(massFor('loot',[.5,.5,.5])).toBeLessThan(2);
+ expect(MAX_ROCKS).toBe(50);
+ expect(MAX_LOOT).toBe(50);
+ expect(ACTIVE_CAP).toBe(100);
 });

@@ -8,7 +8,7 @@ import {
 } from 'playcanvas';
 export type Point=[number,number,number];
 export type Shape=(name:string,type:'box'|'sphere'|'cylinder',pos:Point,
- size:Point,material:StandardMaterial,solid?:'static'|'dynamic'|false,pitch?:number)=>Entity;
+ size:Point,material:StandardMaterial,solid?:'static'|'dynamic'|false,pitch?:number,mass?:number)=>Entity;
 export function material(color:string,gloss=.48){
  const m=new StandardMaterial();
  const v=[1,3,5].map(i=>parseInt(color.slice(i,i+2),16)/255) as Point;
@@ -37,6 +37,32 @@ export async function createPhysicsGame(canvas:HTMLCanvasElement){
  app.init(options);
  app.setCanvasFillMode(FILLMODE_FILL_WINDOW);
  app.setCanvasResolution(RESOLUTION_AUTO);
+ // AppBase has NO automatic window resize listener. Explicitly synchronize
+ // framebuffer & CSS after tab switches, browser/sidebar resize and rotation.
+ // Keep the camera in its default ASPECT_AUTO mode.
+ let viewportW=0,viewportH=0,resizeEvents=0;
+ const syncViewport=()=>{
+   // Fill-window sets an INLINE canvas style in PlayCanvas. On browser
+   // resize its old client rect can remain stuck at the prior size!
+   // Read the WINDOW first, then force the engine to update that inline CSS.
+   const width=Math.max(1,Math.round(window.innerWidth));
+   const height=Math.max(1,Math.round(window.innerHeight));
+   if(width===viewportW&&height===viewportH)return;
+   app.resizeCanvas();
+   app.updateCanvasSize();
+   viewportW=width;viewportH=height;
+   resizeEvents++;
+ };
+ window.addEventListener('resize',syncViewport,{passive:true});
+ window.addEventListener('orientationchange',syncViewport,{passive:true});
+ window.visualViewport?.addEventListener('resize',syncViewport,{passive:true});
+ document.addEventListener('visibilitychange',()=>{
+   if(!document.hidden)syncViewport();
+ });
+ const resizeObserver=new ResizeObserver(syncViewport);
+ resizeObserver.observe(canvas);
+ syncViewport();
+
  (app.systems.rigidbody as RigidBodyComponentSystem).gravity.set(0,-22,0);
  const camera=new Entity('chase-camera');
  camera.addComponent('camera',{fov:55,nearClip:.1,farClip:190,
@@ -47,7 +73,7 @@ export async function createPhysicsGame(canvas:HTMLCanvasElement){
    shadowResolution:768,shadowBias:.14,normalOffsetBias:.08});
  light.setEulerAngles(45,-28,0);app.root.addChild(light);
  app.scene.ambientLight=new Color(.65,.71,.84);
- const shape:Shape=(name,type,pos,size,surface,solid=false,pitch=0)=>{
+ const shape:Shape=(name,type,pos,size,surface,solid=false,pitch=0,mass=1.4)=>{
    const entity=new Entity(name);entity.setPosition(...pos);
    if(pitch)entity.setEulerAngles(pitch,0,0);
    const visual=new Entity(name+'-visual');
@@ -62,12 +88,12 @@ export async function createPhysicsGame(canvas:HTMLCanvasElement){
      else entity.addComponent('collision',{type:'cylinder',
        radius:Math.max(size[0],size[2])/2,height:size[1]});
      entity.addComponent('rigidbody',{type:solid,
-       mass:solid==='dynamic'?1.4:0,
+       mass:solid==='dynamic'?mass:0,
        friction:solid==='dynamic'?.66:.92,restitution:.10,
        linearDamping:solid==='dynamic'?.24:0,
        angularDamping:solid==='dynamic'?.23:0});
    }
    app.root.addChild(entity);return entity;
  };
- return {app,camera,shape,device};
+ return {app,camera,shape,device,viewport:()=>({width:viewportW,height:viewportH,resizeEvents})};
 }

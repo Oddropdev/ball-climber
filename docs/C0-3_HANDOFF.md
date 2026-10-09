@@ -1,0 +1,11 @@
+# C0.3 — Mystery Summit Avalanche (owner review)
+- Base: PR #2, branch c0-2-sixty-degree-swipe-slope.
+- Branch: c0-3-mystery-avalanche; keep both draft PRs stacked, DO NOT merge main.
+- Window resize fix: PlayCanvas AppBase does not install a window resize handler. Explicit resizeCanvas + updateCanvasSize on resize/orientation/visualViewport/ResizeObserver and visibility return. Auto camera aspect ratio stays enabled.
+- New large, procedural textured '?' source box beyond the summit. Every physical rock / loot starts from one location at the top; actual Bullet mass/momentum deliver descent.
+- 12 shuffled seeded motifs, with true staggered train and loot train emission, simultaneous rows, scattered multi-shape groups, giant hazards. Reproducible from seed and wave index.
+- Per-kind live limits: 50 rocks + 50 loot = 100 active Bullet bodies. Late pending jobs dropped under pressure. Reclaim via Entity.destroy on exit/collection/time.
+- Mass scaled by approximate volume, giant cap 260, standard player mass unchanged. Heavy impacts are dangerous; checkpoints retain loss.
+- Swipe momentum increased (11.6+1.6 per chain, peak forward 23 m/s). Still NO autoplay motor. Manual playtest and Android frame pacing essential.
+- CI must verify responsive aspect live without refresh, giant spawned, actual dynamic bodies, cap and destruction, real gesture once.
+- Next: user recording C0.3, tune 100-body performance and geometry, then short levels.

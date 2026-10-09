@@ -1,44 +1,42 @@
-name: C0 Ball Climber Physics Foundation
+name: C0.3 Mystery Summit Avalanche
 on:
   pull_request:
     paths:
       - 'src/**'
       - 'tests/**'
-      - 'tools/**'
       - 'index.html'
       - 'package.json'
-      - 'tsconfig.json'
-      - 'vite.config.ts'
-      - 'playwright.config.mjs'
-      - '.github/workflows/c0-foundation.yml'
+      - '.github/workflows/c0-3-mystery-avalanche.yml'
+      - 'docs/C0-3_HANDOFF.md'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  physics-climb:
-    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'c0-playcanvas-bullet-foundation'
+  mystery-avalanche:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'c0-3-')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: {node-version: '24'}
       - run: npm install --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
-      - name: Unit, static typecheck and self-hosted Ammo build
+      - name: 60-degree geometry, shuffled trains, volume-based mass, 50+50 budgets and TypeScript
         run: |
           npm run test
           npm run build
-      - name: Real Chromium physics climbing smoke
+      - name: Real browser responsive canvas, no autoclamp, genuine Bullet giant avalanche
         run: npm run test:browser
-      - name: Reviewable built game and screenshot
+      - name: Owner Windows ZIP and verified browser screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: c0-ball-climber-owner-preview
+          name: c0-3-mystery-avalanche-preview
           path: |
             dist/
             test-results/
             Start_Ball_Climber.cmd
             tools/serve-preview.mjs
+            docs/C0-3_HANDOFF.md
           if-no-files-found: warn
