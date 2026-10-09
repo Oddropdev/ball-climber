@@ -84,3 +84,26 @@ test('C0.4: soft body density below 50+50 hard cap; reliable visual-only occlusi
  expect(blocksCameraSegment([0,3,12],[0,1,0],[4,2,6],1.2)).toBe(false);
  expect(blocksCameraSegment([0,3,12],[0,1,0],[0,2,-6],2)).toBe(false);
 });
+
+import {PLAYER_SWIPE_IMPULSE,PLAYER_CHAIN_INCREMENT,PLAYER_MAX_FORWARD_SPEED,
+ HAZARD_RELEASE_SPEED,HAZARD_GRAVITY_RELIEF,HAZARD_AIR_DRAG,
+ hazardBrakingForce,integrateDownhillSpeed,swipeImpulse} from '../src/Motion';
+test('C0.5: finite swipe-only pulses are smaller than C0.4 turbo',()=>{
+ expect(PLAYER_SWIPE_IMPULSE).toBeLessThan(11.6);
+ expect(PLAYER_MAX_FORWARD_SPEED).toBeLessThan(23);
+ expect(swipeImpulse(0)).toBe(PLAYER_SWIPE_IMPULSE);
+ expect(swipeImpulse(1)).toBeCloseTo(PLAYER_SWIPE_IMPULSE+PLAYER_CHAIN_INCREMENT);
+ expect(swipeImpulse(5)).toBeCloseTo(swipeImpulse(4));
+ expect(HAZARD_RELEASE_SPEED).toBeLessThan(4.3);
+});
+test('C0.5: per-hazard mass-scaled slow descent without changing physics clock',()=>{
+ expect(HAZARD_GRAVITY_RELIEF).toBeGreaterThan(.2);
+ expect(HAZARD_GRAVITY_RELIEF).toBeLessThan(.8);
+ expect(HAZARD_AIR_DRAG).toBeGreaterThan(0);
+ expect(hazardBrakingForce(20,5)).toBeCloseTo(hazardBrakingForce(1,5)*20);
+ const slow=Array.from({length:150}).reduce((v)=>integrateDownhillSpeed(v,.03),0);
+ const classic=Array.from({length:150}).reduce((v)=>integrateDownhillSpeed(v,.03,false),0);
+ expect(slow).toBeGreaterThan(1);
+ expect(slow).toBeLessThan(classic*.65);
+ expect(hazardBrakingForce(.14,4)).toBeLessThan(hazardBrakingForce(100,4));
+});
