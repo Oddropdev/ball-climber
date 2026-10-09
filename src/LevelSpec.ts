@@ -1,6 +1,7 @@
 // C1.0 Infinite Climb: deterministic finite work per level, not 1,000 scenes.
 // Each new level is rebuilt from one bounded spec, with a guaranteed summit.
-import {makeRng,SLOPE_LENGTH} from './Course';
+import {makeRng} from './Course';
+import {INFINITE_SLOPE_LENGTH} from './InfiniteGeometry';
 export type Biome='rocky'|'stormwall'|'scrapfall'|'candy';
 export type LevelSpec={
  index:number;seed:number;biome:Biome;title:string;
@@ -35,12 +36,12 @@ export function levelSpec(index:number):LevelSpec{
   island:theme.island,danger:theme.danger,
   sideBoulders:0, // C1.4: remove old solid edge blockers
   summitWidth:9+Math.floor(random()*3),
-  slopeLength:SLOPE_LENGTH,
+  slopeLength:INFINITE_SLOPE_LENGTH,
   difficulty:Math.min(10,1+Math.floor((index-1)/15))
  };
 }
 export function validateLevelSpec(s:LevelSpec){
- return s.slopeLength===SLOPE_LENGTH&&
+ return s.slopeLength===INFINITE_SLOPE_LENGTH&&
   s.summitWidth>=9&&s.summitWidth<=11&&
   s.sideBoulders===0&&
   s.difficulty>=1&&s.difficulty<=10&&
