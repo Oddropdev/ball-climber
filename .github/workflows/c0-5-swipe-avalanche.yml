@@ -1,0 +1,41 @@
+name: C0.5 Swipe-Only Slower Avalanche
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'index.html'
+      - '.github/workflows/c0-5-swipe-avalanche.yml'
+      - 'docs/C0-5_HANDOFF.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  swipe-slow-avalanche:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'c0-5-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Swipe only, physical drag, geometry, furniture unit and production build
+        run: |
+          npm run test
+          npm run build
+      - name: Real Chromium swipe-only, no idle/hold drive, slow wave and legacy camera tests
+        run: npm run test:browser
+      - name: Owner Windows game and genuine browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c0-5-swipe-slow-avalanche-owner-preview
+          path: |
+            dist/
+            test-results/
+            Start_Ball_Climber.cmd
+            tools/serve-preview.mjs
+            docs/C0-5_HANDOFF.md
+          if-no-files-found: warn
