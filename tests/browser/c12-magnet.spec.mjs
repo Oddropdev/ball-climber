@@ -10,7 +10,12 @@ test('C1.2: near-top physics magnet catches a genuine uphill approach',async({pa
  expect(before.magnetTicks).toBe(0);
  await page.evaluate(()=>window.__CLIMBER_TEST__?.approachMagnet?.());
  await expect.poll(async()=>(await state(page))?.magnetTicks,{timeout:4500}).toBeGreaterThan(5);
- await expect.poll(async()=>(await state(page))?.phase,{timeout:10500}).toBe('summit');
+ try{
+  await expect.poll(async()=>(await state(page))?.phase,{timeout:8500}).toBe('summit');
+ }catch(err){
+  console.log('C12_UPHILL_MAGNET_DIAGNOSTIC',JSON.stringify(await state(page)));
+  throw err;
+ }
  const after=await state(page);
  expect(after.summitContactEvents).toBeGreaterThan(0);
  expect(after.verifiedSummitArrivals).toBe(1);
@@ -30,7 +35,12 @@ test('C1.2: new compound hazards arrive immediately; Level 2 changes silhouettes
  expect(a.activeComplexCount).toBeLessThanOrEqual(6);
  expect(a.activeShapes).toContain('hammer');
  await page.evaluate(()=>window.__CLIMBER_TEST__?.approachSummit?.());
- await expect.poll(async()=>(await state(page))?.phase,{timeout:9000}).toBe('summit');
+ try{
+  await expect.poll(async()=>(await state(page))?.phase,{timeout:7500}).toBe('summit');
+ }catch(err){
+  console.log('C12_DIRECT_PLATFORM_DIAGNOSTIC',JSON.stringify(await state(page)));
+  throw err;
+ }
  await page.locator('#start').click();
  a=await state(page);
  expect(a.levelIndex).toBe(2);
