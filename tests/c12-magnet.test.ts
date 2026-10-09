@@ -18,7 +18,10 @@ test('C1.2: magnetic capture physically pulls toward center and damps launch',()
  const m=summitMagnetForce(46,p,v,42,.58,1.4)!;
  expect(m).not.toBe(null);
  expect(m[0]).toBeLessThan(0);
- expect(m[2]).toBeLessThan(0);
+ expect(m[2]).toBeGreaterThan(0); // brake at the vertical lip
+ const landing=summitMagnetForce(49,{x:2,y:43.5,z:-25},
+  {x:0,y:0,z:-1},42,.58,1.4)!;
+ expect(landing[2]).toBeLessThan(0); // pull across once above the lip
  const faster=summitMagnetForce(46,p,{...v,y:16},42,.58,1.4)!;
  expect(faster[1]).toBeLessThan(m[1]);
  const double=summitMagnetForce(46,p,v,42,.58,2.8)!;
