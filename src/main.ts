@@ -7,6 +7,9 @@ import {makeFallingObstacle,isComplexShape} from './ObstacleShapes';
 import {summitMagnetForce} from './SummitMagnet';
 import {buildRotorField,type RotorField} from './Rotors';
 import {rushPack} from './RushPack';
+import {buildBaseCamp,baseSpawn,shouldPurgeBaseHazard,
+ needsBaseSafetyCatch,HAZARD_KILL_PROGRESS,BASE_DECK_TOP,
+ BASE_DECK_WIDTH,type BaseCamp} from './BaseCamp';
 import {INFINITE_SLOPE_LENGTH,summitCenterZ,steepSlopeCamera,
  cameraPitchDegrees} from './InfiniteGeometry';
 import {chairGauntlet} from './ChairGauntlet';
@@ -49,6 +52,8 @@ function readSave():ClimbSave{
 let save=readSave(),currentSpec:LevelSpec=levelSpec(save.level);
 let levelScene:ClimbLevel|null=null;
 let rotorField:RotorField|null=null;
+let baseCamp:BaseCamp|null=null;
+let hazardPurged=0,baseSafetyCatches=0;
 let stagedLevels=0,disposedLevels=0,summitEvents=0,onSummit=false;
 let summitContactEvents=0,summitContactPending=false;
 let prewarmedActors=0,prewarmedRocks=0,prewarmedLoot=0;
@@ -159,7 +164,7 @@ if(!infiniteMode)for(let i=0;i<18;i++){
  if(i%3===0)shape('distant-cloud-'+i,'sphere',
   onSlope(s,4.5,side*15),[8,3.8,6.5],mats.cloud);
 }
-const initial=onSlope(2);
+const initial=infiniteMode?baseSpawn():onSlope(2);
 const player=shape('player-dynamic-Bullet-ball','sphere',initial,
  [PLAYER_RADIUS*2,PLAYER_RADIUS*2,PLAYER_RADIUS*2],mats.ball,'dynamic',0,BASE_PLAYER_MASS);
 const band=new Entity('player-ball-stripe');
@@ -186,9 +191,11 @@ function stageLevel(){
  if(!infiniteMode)return;
  if(rotorField){rotorField.dispose();rotorField=null;}
  if(levelScene){levelScene.dispose();disposedLevels++;}
+ if(baseCamp){baseCamp.dispose();baseCamp=null;}
  currentSpec=levelSpec(save.level);
  const p=paletteFor(currentSpec);
  levelScene=buildClimbLevel(currentSpec,shape,p);stagedLevels++;
+ baseCamp=buildBaseCamp(shape,{road:p.road,trim:p.trim,marker:p.marker});
  rotorField=buildRotorField(app,currentSpec,p.trim,p.marker);
  for(const v of (ramp.children[0] as Entity).render!.meshInstances)v.material=p.road;
  for(const marker of ledges)
@@ -365,6 +372,11 @@ function reapActors(playerS:number,p:Vec3){
  for(let i=active.length-1;i>=0;i--){
   const actor=active[i]!,pos=actor.entity.getPosition();
   const loc=slopePosition(pos);
+  // The one-metre buffer BEFORE the resting camp is a genuine cleanup
+  // switch for all debris and loot. Never allow hazards onto safe ground.
+  if(infiniteMode&&shouldPurgeBaseHazard(pos)){
+   hazardPurged++;removeActor(i);continue;
+  }
   if(actor.item.kind==='loot'&&p.distance(pos)<1.5){
    loot++;ui.loot.textContent=String(loot);message('LOOT +1');
    removeActor(i);continue;
@@ -425,6 +437,7 @@ function reset(){
  prewarmedActors=0;prewarmedRocks=0;prewarmedLoot=0;
  gauntletActors=0;gauntletChairs=0;gauntletLoot=0;
  rushActors=0;rushChairs=0;
+ hazardPurged=0;baseSafetyCatches=0;
  barrelSpawned=0;beamSpawned=0;bouncerSpawned=0;complexSpawned=0;
  magnetTicks=0;magnetEngagements=0;magnetActive=false;
  arrivalCameraBlend=0;
@@ -666,6 +679,13 @@ app.on('update',(dt:number)=>{
    Math.abs(p.x)>WALL_HALF_WIDTH+PLAYER_RADIUS+.55||
    p.y<(levelScene?.summitTop??0)-8||
    p.z<summitCenterZ(courseLength)-10.5);
+  if(infiniteMode&&needsBaseSafetyCatch(p)){
+   baseSafetyCatches++;
+   body.teleport(...baseSpawn());
+   body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
+   pendingImpulse=0;pendingSideImpulse=0;
+   message('SAFE BASE');
+  }
   const fell=infiniteMode?shouldRecoverInfinite(p):shouldRecover(p);
   if(fell&&(!summitApproach||offSummit)){
    falls++;
@@ -673,7 +693,7 @@ app.on('update',(dt:number)=>{
    // Wait for an actual visible fall rather than instantly rewinding at edge.
    const checkpoint=infiniteMode?2:Math.max(2,checkpointS-12);
    if(infiniteMode){maxProgress=2;checkpointS=2;}
-   body.teleport(...onSlope(checkpoint));
+   body.teleport(...(infiniteMode?baseSpawn():onSlope(checkpoint)));
    body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
    setCharge(0);peakChargeLevel=0;lastWeightSwipeTime=-100;
    pendingImpulse=0;pendingSideImpulse=0;swipeChain=0;
@@ -753,9 +773,26 @@ app.start();
 declare global{interface Window{__CLIMBER_TEST__?:{
  snapshot:()=>Record<string,unknown>;approachSummit?:()=>void;
  approachMagnet?:()=>void;testFall?:()=>void;testSwipe?:(direction:'left'|'right')=>void;
- testRotor?:()=>void
+ testRotor?:()=>void;testPurge?:()=>void;testBaseEdge?:()=>void
 }}}
 window.__CLIMBER_TEST__={
+ testPurge:testMode?()=>{
+  if(phase!=='running')return;
+  const actor=active.find(a=>a.item.kind==='rock'&&a.item.shape==='barrel')??
+   active.find(a=>a.item.kind==='rock');
+  if(!actor)return;
+  actor.entity.rigidbody!.teleport(...onSlope(HAZARD_KILL_PROGRESS-.1,
+   SLAB_THICKNESS/2+Math.max(...actor.item.size)*.65+1.1,0));
+  actor.entity.rigidbody!.linearVelocity=new Vec3();
+  actor.entity.rigidbody!.angularVelocity=new Vec3();
+ }:undefined,
+ testBaseEdge:testMode?()=>{
+  if(phase!=='running')return;
+  body.teleport(BASE_DECK_WIDTH/2-.3,BASE_DECK_TOP+PLAYER_RADIUS+.08,
+   baseSpawn()[2]);
+  body.linearVelocity=new Vec3(7.5,0,0);
+  body.angularVelocity=new Vec3();
+ }:undefined,
  testRotor:testMode?()=>{
   const plan=rotorField?.specs[0];
   if(phase!=='running'||!plan)return;
@@ -811,6 +848,14 @@ window.__CLIMBER_TEST__={
   rotorPairs:rotorField?.specs.map(p=>({lane:p.lane??0,
    direction:p.direction,role:p.pairRole??null,speed:p.speed}))??[],
   rotorTypes:rotorField?.types??[],
+  baseCampExists:!!baseCamp,baseDeckType:baseCamp?.deck.rigidbody?.type??null,
+  baseCampPhysicalCount:baseCamp?.physicalCount??0,
+  baseCampVisualCount:baseCamp?.entityCount??0,
+  baseDeckTop:infiniteMode?BASE_DECK_TOP:null,
+  baseGuardHalfWidth:BASE_DECK_WIDTH/2,
+  baseSpawnZ:infiniteMode?baseSpawn()[2]:null,
+  hazardKillProgress:infiniteMode?HAZARD_KILL_PROGRESS:null,
+  hazardPurged,baseSafetyCatches,
   rotorTurns:rotorField?.turns??0,
   rotorFrames:rotorField?.updatedFrames??0,
   rotorContacts:rotorField?.contacts??0,
