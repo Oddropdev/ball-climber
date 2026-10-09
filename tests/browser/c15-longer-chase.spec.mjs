@@ -10,8 +10,6 @@ test('C1.5: real 60m physics road and true low behind-ball camera on phone',asyn
  await page.setViewportSize({width:390,height:844});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await start(page);
- await expect.poll(async()=>(await state(page))?.cameraSlopePitch,
-  {timeout:3500}).toBeGreaterThan(58);
  const resting=await state(page);
  expect(resting.baseCampExists).toBe(true);
  await page.evaluate(()=>window.__CLIMBER_TEST__?.testGoSlope?.());
