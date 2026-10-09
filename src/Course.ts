@@ -51,7 +51,7 @@ export function makeRng(seed:number){
  };
 }
 export type ObjectKind='rock'|'loot';
-export type ObjectShape='sphere'|'box'|'table'|'chair'|'light';
+export type ObjectShape='sphere'|'box'|'table'|'chair'|'light'|\n 'barrel'|'beam'|'bouncer';
 export type Pattern='scatter'|'row'|'train'|'diagonal'|'loot-row'|'mixed'|
  'cluster'|'giant'|'spiral'|'loot-train'|'wall'|'burst';
 export type SpawnItem={
