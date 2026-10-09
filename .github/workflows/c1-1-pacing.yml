@@ -1,0 +1,71 @@
+name: C1.1 Climb Pacing and Summit Polish
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'docs/C1-1_HANDOFF.md'
+      - '.github/workflows/c1-1-pacing.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: c1-1-mobile-preview
+  cancel-in-progress: true
+jobs:
+  climb-pacing:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'c1-1-climb-pacing-summit-camera'
+    runs-on: ubuntu-latest
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: C0-C1 physics/unit regression, 1000-seed obstacle grammar, typecheck and build
+        run: |
+          npm run test
+          npx vitest run tests/c1-infinite.test.ts
+          npm run build
+      - name: Original C0-C1 browser suite and new early avalanche/camera checks
+        run: npm run test:browser
+      - name: No paid source assets or secrets in the public build
+        run: |
+          test -s dist/index.html
+          test -f dist/ammo/ammo.wasm.wasm
+          if find dist -type f | grep -Ei '\.(zip|env|pem|key|p12|ps1|map)$|licensed|private'; then
+            echo 'Unsafe asset in public build'
+            exit 1
+          fi
+          echo C1_1_PUBLIC_CONTENT_PASS
+      - name: Publish isolated passing Android browser preview
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Built from ${GITHUB_SHA}" > dist/BUILD_ORIGIN.txt
+          cd dist
+          git init -b main
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'C1.1 Android playtest public compiled files only'
+          git remote add origin 'https://x-access-token:'"${GH_TOKEN}"'@github.com/Oddropdev/ball-climber.git'
+          target=refs/heads/c1-1-mobile-static-preview
+          expected=$(git ls-remote origin "$target" | cut -f1)
+          if [ -n "$expected" ]; then
+            git push "--force-with-lease=$target:$expected" origin "HEAD:$target"
+          else
+            git push origin "HEAD:$target"
+          fi
+      - name: Screenshots, logs and preview for owner
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c1-1-climb-pacing-owner-playtest
+          path: |
+            dist/
+            test-results/
+            docs/C1-1_HANDOFF.md
+          if-no-files-found: warn
