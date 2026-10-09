@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#b9d7f8">
+<title>Ball Climber — C1.0 Infinite Climb</title>
+  <script type="module" crossorigin src="./assets/index-B4OSiIPZ.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-BaA8bJYZ.css">
+</head><body>
+<main id="game">
+  <canvas id="application-canvas" aria-label="Ball Climber real physics game"></canvas>
+  <div id="hud">
+    <header><div><small>ODDROP / C1.0 INFINITE CLIMB</small><strong>BALL CLIMBER</strong></div>
+      <div class="score"><span id="loot">0</span><small> LOOT</small></div></header>
+    <div id="level-badge" hidden>LEVEL 1 · ROCKY ASCENT</div>
+    <div class="progress"><div id="progress"></div></div>
+    <div id="status">Preparing real physics…</div>
+    <div id="toast" aria-live="polite"></div>
+    <section id="dialog">
+      <div class="eyebrow">60° PHYSICS SLOPE</div>
+      <h1 id="title">CLIMB. <em>DODGE.</em> COLLECT.</h1>
+      <p id="description">Climb only by swiping UP. Repeated swipes make the ball HEAVIER to push obstacles, but heavy balls dodge more slowly. Gold is loot, coral is danger, teal is lightweight debris. Dodge giant furniture and collect loot.</p>
+      <div id="summit-summary" hidden>Summit reached · loot banked</div>
+      <button id="start" type="button" disabled>LOADING…</button>
+      <button id="shop-button" type="button" hidden>SKIN SHOP</button>
+      <section id="shop-panel" hidden aria-label="Ball skins shop">
+        <div id="shop-credits">BANK: 0 LOOT</div>
+        <div id="shop-items"></div>
+        <button id="shop-back" type="button">BACK TO SUMMIT</button>
+      </section>
+      <small>Swipe ↑ to roll and gain weight · ← → dodge · R restart</small>
+    </section>
+    <div class="hint">GOLD = LOOT · CORAL = DANGER · TEAL = LIGHT</div>
+  </div>
+</main>
+</body></html>
