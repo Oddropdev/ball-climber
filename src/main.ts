@@ -699,6 +699,16 @@ app.on('update',(dt:number)=>{
   p.x*.74,p.y-UP[1]*6+NORMAL[1]*10.2+offsets.vertical+
    lowCameraDrop(arrivalCameraBlend,lowCameraMode)+closeChase.vertical,
   p.z-UP[2]*6+NORMAL[2]*10.2+(offsets.behind-11.8)+closeChase.behind);
+ const focusTarget=new Vec3(p.x*.9,p.y+offsets.focusHeight,
+  p.z-offsets.focusAhead);
+ // New default follows the real 60° ramp BEHIND the ball at about 5m.
+ // As the summit approaches, gradually blend to the proven level deck view.
+ if(steepChaseMode){
+  const pose=steepSlopeCamera(p);
+  const towardSlope=1-arrivalCameraBlend;
+  cameraTarget.lerp(cameraTarget,new Vec3(...pose.camera),towardSlope);
+  focusTarget.lerp(focusTarget,new Vec3(...pose.target),towardSlope);
+ }
  const now=camera.getPosition();
  const lag=now.distance(cameraTarget);
  const ease=lag>7?1:clamp(tick*9,0,1);
@@ -706,8 +716,9 @@ app.on('update',(dt:number)=>{
   now.x+(cameraTarget.x-now.x)*ease,
   now.y+(cameraTarget.y-now.y)*ease,
   now.z+(cameraTarget.z-now.z)*ease);
- camera.lookAt(p.x*.9,p.y+offsets.focusHeight,p.z-offsets.focusAhead);
- camera.camera!.fov=closeChase.fov;
+ camera.lookAt(focusTarget);
+ camera.camera!.fov=steepChaseMode?
+  65-7*arrivalCameraBlend:closeChase.fov;
  // The WORLD is still physically solid. Only obstructing VISUAL meshes
  // turn translucent when between camera and ball. No camera teleports.
  if(elapsed-lastOcclusionScan>.095){
@@ -858,9 +869,13 @@ window.__CLIMBER_TEST__={
  massUpdateCount,maximumChargedMass,speedCapActivations,
  chargedMediumImpacts,
  cameraLowMode:lowCameraMode,cameraCloseMode:closeCameraMode,
+ cameraSteepMode:steepChaseMode,
  cameraDrop:lowCameraDrop(arrivalCameraBlend,lowCameraMode)+
   closeChaseOffset(arrivalCameraBlend,closeCameraMode).vertical,
  cameraDistance:camera.getPosition().distance(player.getPosition()),
+ cameraSlopePitch:cameraPitchDegrees(
+  [camera.getPosition().x,camera.getPosition().y,camera.getPosition().z],
+  [focusTarget.x,focusTarget.y,focusTarget.z]),
  cameraY:camera.getPosition().y,cameraZ:camera.getPosition().z,
  ballVelocityX:body.linearVelocity.x,
  ballVelocityY:body.linearVelocity.y
