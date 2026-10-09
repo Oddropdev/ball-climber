@@ -237,7 +237,7 @@ player.collision!.on('collisionstart',(evt:{other:Entity})=>{
 function reset(){
  disposeActors();
  phase='running';attempts++;elapsed=0;loot=0;hits=0;falls=0;contacts=0;
- pointerHeld=false;keyHeld=false;
+
  spawnedTotal=0;destroyedTotal=0;spawnWaves=0;maxLive=0;
  liveRocks=0;liveLoot=0;peakRocks=0;peakLoot=0;spawnSkipped=0;
  heavyHits=0;giantsSpawned=0;maxRockMass=0;
