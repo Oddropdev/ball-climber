@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: {node-version: '24'}
       - run: npm install --no-audit --no-fund
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install chromium
       - name: C0-C1 physics/unit regression, 1000-seed obstacle grammar, typecheck and build
         run: |
           npm run test
