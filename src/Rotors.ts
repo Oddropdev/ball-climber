@@ -17,7 +17,8 @@ export function rotorSpecs(index:number,seed:number):RotorSpec[]{
   const progress=33+(r()-.5)*3;
   const phase=r()*Math.PI*2;
   const speed=(10+r()*5)*Math.PI*2/60;
-  const radius=3.1+r()*.24;
+  // Small paired rotors: leave >=3.1m unobstructed center corridor.
+  const radius=1.65+r()*.18;
   return [
    {id:0,kind:'cross',progress,speed,direction:-1,lane:-3.65,
     radius,phase,pairRole:'left'},
@@ -38,6 +39,15 @@ export function rotorSpecs(index:number,seed:number):RotorSpec[]{
   phase:r()*Math.PI*2,
   lane:0
  }));
+}
+// Conservative swept-collider bound includes 0.24m blade half-width.
+// A full-diameter player ball needs only 1.16m plus steering clearance.
+export function pairedRotorClearance(specs:readonly RotorSpec[]){
+ if(specs.length!==2||specs[0]?.pairRole!=='left'||
+  specs[1]?.pairRole!=='right')return null;
+ const left=specs[0],right=specs[1];
+ return (right.lane??0)-(right.radius+.24)-
+  ((left.lane??0)+(left.radius+.24));
 }
 type ColliderPart={name:string;offset:[number,number,number];
  size:[number,number,number]};
