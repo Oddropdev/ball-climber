@@ -1,8 +1,8 @@
 // C0.5 game-feel contract. Physical time remains 1:1; only hazards
 // receive mass-proportional uphill drag while the real player uses impulses.
-export const PLAYER_SWIPE_IMPULSE=8.1;
-export const PLAYER_CHAIN_INCREMENT=.75;
-export const PLAYER_MAX_FORWARD_SPEED=14.5;
+export const PLAYER_SWIPE_IMPULSE=11.0;
+export const PLAYER_CHAIN_INCREMENT=.95;
+export const PLAYER_MAX_FORWARD_SPEED=17.0;
 export const PLAYER_ANTISLIDE_FORCE=6.5;
 export const PLAYER_SWIPE_COOLDOWN=.13;
 export const HAZARD_RELEASE_SPEED=2.8;
