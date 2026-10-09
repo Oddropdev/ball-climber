@@ -1,7 +1,10 @@
 import {test,expect} from '@playwright/test';
 const read=page=>page.evaluate(()=>window.__CLIMBER_TEST__?.snapshot());
-test('C0.3: dynamic viewport and aspect updates immediately without reload',async({page})=>{
+test('C0.3: dynamic viewport and aspect updates immediately without reload',async({browser})=>{
  test.setTimeout(60_000);
+ // A real resizable desktop context; isMobile emulation locks screen metrics.
+ const context=await browser.newContext({viewport:{width:390,height:844},deviceScaleFactor:1,isMobile:false});
+ const page=await context.newPage();
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.setViewportSize({width:390,height:844});
  await page.goto('/');
@@ -21,6 +24,7 @@ test('C0.3: dynamic viewport and aspect updates immediately without reload',asyn
  }
  await page.screenshot({path:'test-results/c03-square-after-live-resize.png'});
  expect(errors).toEqual([]);
+ await context.close();
 });
 test('C0.3: no self-climb; one stronger swipe; true Bullet danger and summit emitter',async({page})=>{
  test.setTimeout(100_000);
