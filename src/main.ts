@@ -869,7 +869,7 @@ window.__CLIMBER_TEST__={
   rotorKinds:rotorField?.specs.map(p=>p.kind)??[],
   rotorPairs:rotorField?.specs.map(p=>({lane:p.lane??0,
    direction:p.direction,role:p.pairRole??null,speed:p.speed,
-   radius:p.radius}))??[],
+   radius:p.radius,progress:p.progress}))??[],
   rotorPassageWidth:rotorField?pairedRotorClearance(rotorField.specs):null,
   rotorTypes:rotorField?.types??[],
   baseCampExists:!!baseCamp,baseDeckType:baseCamp?.deck.rigidbody?.type??null,
