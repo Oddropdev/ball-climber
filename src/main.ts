@@ -190,6 +190,10 @@ function setCharge(level:number){
 }
 const finish=shape('summit-finish','box',onSlope(SLOPE_LENGTH,.55),
  [WALL_HALF_WIDTH*2,.28,.85],mats.gold,false,SLOPE_DEGREES);
+// Original sloped finish stripe hangs over the new horizontal landing
+// causing the wide pale band seen in the owner's physical Android video.
+// Infinite mode now uses the dedicated, flat deck runout stripes instead.
+if(infiniteMode)finish.enabled=false;
 // All the hazards originate at this giant ? box above the summit.
 // Procedural license-free texture, visible from the climbing camera.
 const face=document.createElement('canvas');face.width=256;face.height=256;
