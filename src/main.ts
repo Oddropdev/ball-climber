@@ -31,6 +31,7 @@ let ghostedActors=0,peakGhosted=0,cameraOcclusionChecks=0;
 let lastOcclusionScan=-1e3;let hazardMotionTicks=0,hazardSampleSpeed=0;
 let totalRock=0,totalLoot=0,totalBox=0,totalSphere=0;
 let checkpointS=2,maxProgress=2,sideFlicks=0,forwardFlicks=0;
+let appliedSwipeCount=0,lastAppliedSwipeMagnitude=0;
 let lastFlickTime=-100,maxForwardSpeed=0,spawnNextAt=1,spawnWaveIndex=0;
 let swipeChain=0,lastSwipeEnd=-100,pendingImpulse=0,pendingSideImpulse=0;
 let messageUntil=0;
@@ -248,6 +249,7 @@ function reset(){
  totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
  for(const k of Object.keys(patterns) as Pattern[])patterns[k]=0;
  sideFlicks=0;forwardFlicks=0;maxForwardSpeed=0;
+ appliedSwipeCount=0;lastAppliedSwipeMagnitude=0;
  checkpointS=2;maxProgress=2;spawnNextAt=.2;spawnWaveIndex=0;
  swipeChain=0;lastSwipeEnd=-100;lastFlickTime=-100;
  pendingImpulse=0;pendingSideImpulse=0;
@@ -331,6 +333,7 @@ app.on('update',(dt:number)=>{
    const speed=forwardVelocity(v);
    const bounded=Math.max(0,Math.min(next,(PLAYER_MAX_FORWARD_SPEED-speed)*1.4));
    if(bounded>0){
+    appliedSwipeCount++;lastAppliedSwipeMagnitude=bounded;
     body.applyImpulse(new Vec3(0,bounded*SIN_SLOPE,-bounded*COS_SLOPE));
     body.applyTorqueImpulse(new Vec3(Math.min(1.85,bounded*.19),0,0));
    }
@@ -437,6 +440,7 @@ window.__CLIMBER_TEST__={snapshot:()=>({
  finishVisual:!!finish.children.length,
  forwardSpeed:forwardVelocity(body.linearVelocity),
  maxForwardSpeed,forwardFlicks,sideFlicks,swipeChain,
+ appliedSwipeCount,lastAppliedSwipeMagnitude,
  cameraY:camera.getPosition().y,cameraZ:camera.getPosition().z,
  ballVelocityY:body.linearVelocity.y
 })};
