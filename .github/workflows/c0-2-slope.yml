@@ -1,0 +1,41 @@
+name: C0.2 Sixty Degree Swipe Slope
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'tools/**'
+      - 'index.html'
+      - 'package.json'
+      - '.github/workflows/c0-2-slope.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sixty-degree-slope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Pure slope geometry, deterministic waves, strict TypeScript and unlicensed build
+        run: |
+          npm run test
+          npm run build
+      - name: Real browser no-autoclimb/swipe/falling-shapes/cleanup tests
+        run: npm run test:browser
+      - name: Owner preview and actual screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c0-2-sixty-degree-slope-owner-preview
+          path: |
+            dist/
+            test-results/
+            Start_Ball_Climber.cmd
+            tools/serve-preview.mjs
+            docs/C0-2_HANDOFF.md
+          if-no-files-found: warn
