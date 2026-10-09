@@ -33,7 +33,7 @@ export function levelSpec(index:number):LevelSpec{
   decorSeed:Math.floor(random()*0xffffffff),
   sky:theme.sky,road:theme.road,stripe:theme.stripe,
   island:theme.island,danger:theme.danger,
-  sideBoulders:3+Math.floor(random()*4),
+  sideBoulders:0, // C1.4: remove old solid edge blockers
   summitWidth:9+Math.floor(random()*3),
   slopeLength:SLOPE_LENGTH,
   difficulty:Math.min(10,1+Math.floor((index-1)/15))
@@ -42,7 +42,7 @@ export function levelSpec(index:number):LevelSpec{
 export function validateLevelSpec(s:LevelSpec){
  return s.slopeLength===SLOPE_LENGTH&&
   s.summitWidth>=9&&s.summitWidth<=11&&
-  s.sideBoulders>=3&&s.sideBoulders<=6&&
+  s.sideBoulders===0&&
   s.difficulty>=1&&s.difficulty<=10&&
   s.waveSeed>=0&&s.index>0;
 }
