@@ -3,6 +3,8 @@
 import {Entity,Vec3,Color,Texture,PIXELFORMAT_RGBA8,BLEND_NORMAL,type MeshInstance,type Material} from 'playcanvas';
 import {createPhysicsGame,material} from './Physics';
 import {makeFurniture,furnitureOpening} from './Furniture';
+import {makeFallingObstacle,isComplexShape} from './ObstacleShapes';
+import {summitMagnetForce} from './SummitMagnet';
 import {PLAYER_SWIPE_IMPULSE,PLAYER_CHAIN_INCREMENT,PLAYER_MAX_FORWARD_SPEED,
  PLAYER_ANTISLIDE_FORCE,PLAYER_SWIPE_COOLDOWN,HAZARD_RELEASE_SPEED,
  HAZARD_MAX_AGE_SECONDS,hazardBrakingForce,
@@ -37,7 +39,8 @@ let levelScene:ClimbLevel|null=null;
 let stagedLevels=0,disposedLevels=0,summitEvents=0,onSummit=false;
 let summitContactEvents=0,summitContactPending=false;
 let prewarmedActors=0,prewarmedRocks=0,prewarmedLoot=0;
-let barrelSpawned=0,beamSpawned=0,bouncerSpawned=0;
+let barrelSpawned=0,beamSpawned=0,bouncerSpawned=0,complexSpawned=0;
+let magnetTicks=0,magnetEngagements=0,magnetActive=false;
 let arrivalCameraBlend=0;
 let lastSummitContactProgress=0,verifiedSummitArrivals=0;
 const canvas=document.getElementById('application-canvas') as HTMLCanvasElement;
@@ -257,6 +260,9 @@ function spawnActor(item:SpawnItem,earlyProgress?:number){
  const e=item.shape==='table'||item.shape==='chair'?
   makeFurniture(app,item,position,
     item.shape==='table'?mats.furniture:mats.chair):
+  isComplexShape(item.shape)?
+   makeFallingObstacle(app,item,position,
+    item.slot%2?mats.rockDark:mats.crate,mats.gold):
   shape((item.kind==='rock'?'falling-rock-':'falling-loot-')+
    item.wave+'-'+item.slot,
    item.shape==='barrel'?'cylinder':
@@ -278,6 +284,7 @@ function spawnActor(item:SpawnItem,earlyProgress?:number){
  if(item.shape==='barrel')barrelSpawned++;
  if(item.shape==='beam')beamSpawned++;
  if(item.shape==='bouncer')bouncerSpawned++;
+ if(isComplexShape(item.shape))complexSpawned++;
  active.push({item,entity:e,bornAt:elapsed,original:collectRenders(e),ghostTier:0});
  if(item.shape==='table'||item.shape==='chair'){
   furnitureSpawned++;
@@ -307,7 +314,7 @@ function streamSpawns(){
   const wave=makeWave(infiniteMode?currentSpec.waveSeed:WAVE_SEED,spawnWaveIndex++);
   patterns[wave.pattern]++;spawnWaves++;
   for(const item of wave.items)pending.push({
-   item:infiniteMode?refineInfiniteItem(item,currentSpec.waveSeed):item,
+   item:infiniteMode?refineInfiniteItem(item,currentSpec.waveSeed,currentSpec.biome):item,
    at:elapsed+item.delay});
   // Lower the physical danger density but preserve visually rich mixed bursts.
   spawnNextAt=elapsed+(spawnWaves%5===0?.78:1.18);
@@ -319,7 +326,11 @@ function streamSpawns(){
   const limit=job.item.kind==='rock'?
    Math.min(MAX_ROCKS,HAZARD_SOFT_TARGET):Math.min(MAX_LOOT,LOOT_SOFT_TARGET);
   const slotFree=job.item.kind==='rock'?liveRocks<limit:liveLoot<limit;
-  if(slotFree&&active.length<ACTIVE_CAP){
+  // Complex compounds carry multiple real Bullet collision primitives.
+  // Keep a strict active budget on low-end Android devices.
+  const compoundBudget=!isComplexShape(job.item.shape)||
+   active.filter(a=>isComplexShape(a.item.shape)).length<6;
+  if(slotFree&&compoundBudget&&active.length<ACTIVE_CAP){
    spawnActor(job.item);pending.splice(i,1);
   }else if(elapsed-job.at>1.2){
    pending.splice(i,1);spawnSkipped++;
@@ -388,7 +399,8 @@ function reset(){
  lastOcclusionScan=-1e3;hazardMotionTicks=0;hazardSampleSpeed=0;
  totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
  prewarmedActors=0;prewarmedRocks=0;prewarmedLoot=0;
- barrelSpawned=0;beamSpawned=0;bouncerSpawned=0;
+ barrelSpawned=0;beamSpawned=0;bouncerSpawned=0;complexSpawned=0;
+ magnetTicks=0;magnetEngagements=0;magnetActive=false;
  arrivalCameraBlend=0;
  for(const k of Object.keys(patterns) as Pattern[])patterns[k]=0;
  sideFlicks=0;forwardFlicks=0;maxForwardSpeed=0;
@@ -404,7 +416,7 @@ function reset(){
  if(infiniteMode){
   // Eight pre-positioned dynamic objects simulate an avalanche already
   // moving when the player begins, so fast upward swipes encounter hazards.
-  for(const pre of warmStartItems(currentSpec.waveSeed)){
+  for(const pre of warmStartItems(currentSpec.waveSeed,currentSpec.biome)){
    spawnActor(pre.item,pre.progress);prewarmedActors++;
    if(pre.item.kind==='rock')prewarmedRocks++;
    else prewarmedLoot++;
@@ -571,6 +583,18 @@ app.on('update',(dt:number)=>{
    body.applyImpulse(new Vec3(clamp(pendingSideImpulse,-7,7)*normalMassRatio,0,0));
    pendingSideImpulse=0;
   }
+  // Capture is an actual mass-scaled Bullet force, only near the summit:
+  // it arrests the launch trajectory and brings the ball onto the collider.
+  if(infiniteMode&&levelScene){
+   const pull=summitMagnetForce(frame.progress,p,body.linearVelocity,
+    levelScene.summitTop,PLAYER_RADIUS,body.mass);
+   if(pull){
+    body.applyForce(new Vec3(...pull));
+    magnetTicks++;
+    if(!magnetActive)magnetEngagements++;
+    magnetActive=true;
+   }else magnetActive=false;
+  }
   // Enforce the uphill ceiling even if a huge contact (or repeated quick
   // swipes) adds momentum. Preserve sideways/downhill/normal components.
   const velocityNow=body.linearVelocity;
@@ -662,9 +686,17 @@ app.on('update',(dt:number)=>{
 });
 app.start();
 declare global{interface Window{__CLIMBER_TEST__?:{
- snapshot:()=>Record<string,unknown>;approachSummit?:()=>void
+ snapshot:()=>Record<string,unknown>;approachSummit?:()=>void;
+ approachMagnet?:()=>void
 }}}
 window.__CLIMBER_TEST__={
+ approachMagnet:testMode?()=>{
+  if(phase!=='running'||body.type!=='dynamic')return;
+  // Test the real dynamic approach, rather than spoofing a collision.
+  body.teleport(...onSlope(44.5));
+  body.linearVelocity=new Vec3(0,6.3,-3.65);
+  body.angularVelocity=new Vec3();
+ }:undefined,
  approachSummit:testMode?()=>{
   if(phase!=='running'||body.type!=='dynamic')return;
   // Controlled REAL Bullet landing on the summit platform. We advance
@@ -688,7 +720,8 @@ window.__CLIMBER_TEST__={
   levelPhysicalObstacles:levelScene?.physicalEntities??0,
   stagedLevels,disposedLevels,summitEvents,onSummit,
   prewarmedActors,prewarmedRocks,prewarmedLoot,
-  barrelSpawned,beamSpawned,bouncerSpawned,arrivalCameraBlend,
+  barrelSpawned,beamSpawned,bouncerSpawned,complexSpawned,
+  magnetTicks,magnetEngagements,magnetActive,arrivalCameraBlend,
   summitContactEvents,summitContactPending,
   lastSummitContactProgress,verifiedSummitArrivals,
   wallet:save.wallet,ownedSkins:[...save.owned],equippedSkin:save.equipped,
