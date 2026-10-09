@@ -828,7 +828,11 @@ declare global{interface Window{__CLIMBER_TEST__?:{
 }}}
 window.__CLIMBER_TEST__={
  testCharge:testMode?()=>{
-  if(phase==='running')setCharge(4);
+  if(phase==='running'){
+   peakChargeLevel=4;
+   lastWeightSwipeTime=elapsed;
+   setCharge(4);
+  }
  }:undefined,
  testSummitSwipe:testMode?()=>{
   if(phase!=='running')return;
