@@ -8,7 +8,7 @@ import {summitMagnetForce} from './SummitMagnet';
 import {buildRotorField,type RotorField} from './Rotors';
 import {rushPack} from './RushPack';
 import {buildBaseCamp,baseSpawn,shouldPurgeBaseHazard,
- needsBaseSafetyCatch,HAZARD_KILL_PROGRESS,BASE_DECK_TOP,
+ needsBaseSafetyCatch,baseCameraTransition,HAZARD_KILL_PROGRESS,BASE_DECK_TOP,
  BASE_DECK_WIDTH,type BaseCamp} from './BaseCamp';
 import {INFINITE_SLOPE_LENGTH,summitCenterZ,steepSlopeCamera,
  cameraPitchDegrees} from './InfiniteGeometry';
@@ -726,6 +726,12 @@ app.on('update',(dt:number)=>{
  // As the summit approaches, gradually blend to the proven level deck view.
  if(steepChaseMode){
   const pose=steepSlopeCamera(p);
+  if(baseCamp){
+   const rest=baseCameraTransition(p);
+   for(let i=0;i<3;i++)
+    pose.camera[i]=rest.camera[i]!*(1-rest.slopeBlend)+
+     pose.camera[i]!*rest.slopeBlend;
+  }
   const towardSlope=1-arrivalCameraBlend;
   cameraTarget.lerp(cameraTarget,new Vec3(...pose.camera),towardSlope);
   focusTarget.lerp(focusTarget,new Vec3(...pose.target),towardSlope);
@@ -773,7 +779,8 @@ app.start();
 declare global{interface Window{__CLIMBER_TEST__?:{
  snapshot:()=>Record<string,unknown>;approachSummit?:()=>void;
  approachMagnet?:()=>void;testFall?:()=>void;testSwipe?:(direction:'left'|'right')=>void;
- testRotor?:()=>void;testPurge?:()=>void;testBaseEdge?:()=>void
+ testRotor?:()=>void;testPurge?:()=>void;testBaseEdge?:()=>void;
+ testGoSlope?:()=>void
 }}}
 window.__CLIMBER_TEST__={
  testPurge:testMode?()=>{
@@ -785,6 +792,11 @@ window.__CLIMBER_TEST__={
    SLAB_THICKNESS/2+Math.max(...actor.item.size)*.65+1.1,0));
   actor.entity.rigidbody!.linearVelocity=new Vec3();
   actor.entity.rigidbody!.angularVelocity=new Vec3();
+ }:undefined,
+ testGoSlope:testMode?()=>{
+  if(phase!=='running')return;
+  body.teleport(...onSlope(10));
+  body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
  }:undefined,
  testBaseEdge:testMode?()=>{
   if(phase!=='running')return;
