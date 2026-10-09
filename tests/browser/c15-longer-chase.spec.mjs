@@ -12,6 +12,11 @@ test('C1.5: real 60m physics road and true low behind-ball camera on phone',asyn
  await start(page);
  await expect.poll(async()=>(await state(page))?.cameraSlopePitch,
   {timeout:3500}).toBeGreaterThan(58);
+ const resting=await state(page);
+ expect(resting.baseCampExists).toBe(true);
+ await page.evaluate(()=>window.__CLIMBER_TEST__?.testGoSlope?.());
+ await expect.poll(async()=>(await state(page))?.progress,{timeout:1500}).toBeGreaterThan(8);
+ await expect.poll(async()=>(await state(page))?.cameraSlopePitch,{timeout:3500}).toBeGreaterThan(58);
  const s=await state(page);
  expect(s.slopeLength).toBe(60);
  expect(s.legacySlopeLength).toBe(48);
