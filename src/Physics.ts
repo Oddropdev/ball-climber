@@ -42,13 +42,15 @@ export async function createPhysicsGame(canvas:HTMLCanvasElement){
  // Keep the camera in its default ASPECT_AUTO mode.
  let viewportW=0,viewportH=0,resizeEvents=0;
  const syncViewport=()=>{
-   const rect=canvas.getBoundingClientRect();
-   const width=Math.max(1,Math.round(rect.width));
-   const height=Math.max(1,Math.round(rect.height));
+   // Fill-window sets an INLINE canvas style in PlayCanvas. On browser
+   // resize its old client rect can remain stuck at the prior size!
+   // Read the WINDOW first, then force the engine to update that inline CSS.
+   const width=Math.max(1,Math.round(window.innerWidth));
+   const height=Math.max(1,Math.round(window.innerHeight));
    if(width===viewportW&&height===viewportH)return;
-   viewportW=width;viewportH=height;
    app.resizeCanvas();
    app.updateCanvasSize();
+   viewportW=width;viewportH=height;
    resizeEvents++;
  };
  window.addEventListener('resize',syncViewport,{passive:true});
