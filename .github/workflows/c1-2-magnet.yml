@@ -5,7 +5,7 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'docs/C1-2_HANDOFF.md'
-      - '.github/workflows/c1-2-pacing.yml'
+      - '.github/workflows/c1-2-magnet.yml'
   workflow_dispatch:
 permissions:
   contents: write
