@@ -26,7 +26,7 @@ test('C0.3: dynamic viewport and aspect updates immediately without reload',asyn
  expect(errors).toEqual([]);
  await context.close();
 });
-test('C0.3: no self-climb; one stronger swipe; true Bullet danger and summit emitter',async({page})=>{
+test('C0.4: continuous climb plus swipe boost, true Bullet hazard and summit emitter',async({page})=>{
  test.setTimeout(100_000);
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/');
@@ -41,7 +41,8 @@ test('C0.3: no self-climb; one stronger swipe; true Bullet danger and summit emi
  await expect.poll(async()=>(await read(page))?.elapsed,{timeout:15000}).toBeGreaterThan(.9);
  s=await read(page);
  expect(s.forwardFlicks).toBe(0);
- expect(s.maxProgress).toBeLessThan(3.6);
+ expect(s.maxProgress).toBeGreaterThan(2.0);
+ expect(s.baseDriveFrames).toBeGreaterThan(10);
  for(let i=0;i<7;i++){
   await page.keyboard.press('ArrowUp');
   await page.waitForTimeout(230);
@@ -100,4 +101,40 @@ test('C0.3: pointer flick emits one torque/forward impulse, no continuous drive'
  await page.mouse.move(165,560);await page.mouse.down();
  await page.mouse.move(290,560,{steps:4});await page.mouse.up();
  await expect.poll(async()=>(await read(page))?.sideFlicks,{timeout:3500}).toBe(1);
+});
+
+test('C0.4: sustained press supplies continuous thrust; swiping is a separate burst',async({page})=>{
+ test.setTimeout(65000);
+ await page.goto('/');
+ await expect.poll(async()=>(await read(page))?.physicsLoaded,{timeout:25000}).toBe(true);
+ await page.locator('#start').click();
+ await page.mouse.move(185,570);await page.mouse.down();
+ await expect.poll(async()=>(await read(page))?.continuousSeconds,{timeout:10000}).toBeGreaterThan(.45);
+ expect((await read(page)).forwardFlicks).toBe(0);
+ await page.mouse.move(185,440,{steps:3});await page.mouse.up();
+ await expect.poll(async()=>(await read(page))?.forwardFlicks,{timeout:4500}).toBe(1);
+ expect((await read(page)).holding).toBe(false);
+ await page.screenshot({path:'test-results/c04-continuous-and-swipe.png'});
+});
+test('C0.4: actual compound Bullet furniture with leg gaps and light pushable debris',async({page})=>{
+ test.setTimeout(125000);
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/');
+ await expect.poll(async()=>(await read(page))?.physicsLoaded,{timeout:25000}).toBe(true);
+ await page.locator('#start').click();
+ await expect.poll(async()=>(await read(page))?.spawnWaves,
+   {timeout:90000,intervals:[300,500,600]}).toBeGreaterThanOrEqual(12);
+ const s=await read(page);
+ expect(s.furnitureSpawned).toBeGreaterThan(0);
+ expect(s.verifiedCompoundFurniture).toBeGreaterThan(0);
+ expect(s.minVerifiedGap).toBeGreaterThan(1.16);
+ expect(s.lightPropsSpawned).toBeGreaterThan(0);
+ expect(s.softRockTarget).toBeLessThan(30);
+ expect(s.softLootTarget).toBeLessThan(40);
+ expect(s.peakRocks).toBeLessThanOrEqual(s.softRockTarget);
+ expect(s.peakLoot).toBeLessThanOrEqual(s.softLootTarget);
+ expect(s.cameraOcclusionChecks).toBeGreaterThan(4);
+ expect(s.destroyedTotal+s.liveFalling).toBe(s.spawnedTotal);
+ await page.screenshot({path:'test-results/c04-actual-furniture.png'});
+ expect(errors).toEqual([]);
 });
