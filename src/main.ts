@@ -759,7 +759,8 @@ window.__CLIMBER_TEST__={
   if(phase!=='running'||!plan)return;
   const actor=active.find(a=>a.item.kind==='rock'&&a.item.shape==='barrel');
   if(!actor)return;
-  actor.entity.rigidbody!.teleport(...onSlope(plan.progress,SLAB_THICKNESS/2+1.05,1.1));
+  actor.entity.rigidbody!.teleport(...onSlope(plan.progress,
+   SLAB_THICKNESS/2+1.05,(plan.lane??0)+1.1));
   actor.entity.rigidbody!.linearVelocity=new Vec3();
   actor.entity.rigidbody!.angularVelocity=new Vec3();
  }:undefined,
