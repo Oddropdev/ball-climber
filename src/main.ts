@@ -722,6 +722,8 @@ window.__CLIMBER_TEST__={
   prewarmedActors,prewarmedRocks,prewarmedLoot,
   barrelSpawned,beamSpawned,bouncerSpawned,complexSpawned,
   magnetTicks,magnetEngagements,magnetActive,arrivalCameraBlend,
+  activeComplexCount:active.filter(a=>isComplexShape(a.item.shape)).length,
+  activeShapes:[...new Set(active.map(a=>a.item.shape))],
   summitContactEvents,summitContactPending,
   lastSummitContactProgress,verifiedSummitArrivals,
   wallet:save.wallet,ownedSkins:[...save.owned],equippedSkin:save.equipped,
