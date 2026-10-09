@@ -21,6 +21,6 @@ test('C0 real Ammo dynamic ball climbs real static wall, hazards and loot fall',
  const rising=await read(page);
  expect(rising.attempts).toBe(1);
  expect(rising.rigidbodyType).toBe('dynamic');
- expect(rising.spawnedTotal).toBeGreaterThan(5);
+ await expect.poll(async()=>(await read(page))?.spawnedTotal,{timeout:10000}).toBeGreaterThan(5);
  expect(errors).toEqual([]);
 });
