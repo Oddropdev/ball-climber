@@ -1,10 +1,11 @@
-// C0: original game behavior built on verified Game Factory PlayCanvas/Ammo patterns.
-// There is ONE genuine dynamic Bullet player ball; climb assistance is applied as forces.
-// Falling rocks and loot are ALSO dynamic Bullet spheres.
+// C0.2 — genuine 60° Bullet slope. No animation-driven climbing.
+// One upward swipe = one finite roll+forward impulse. Left/right = one lateral impulse.
 import {Entity,Vec3,Color,type RigidBodyComponent} from 'playcanvas';
 import {createPhysicsGame,material} from './Physics';
-import {LEVEL_HEIGHT,PLAYER_FRONT_Z,PLAYER_RADIUS,WALL_HALF_WIDTH,
-  clamp,nearestCheckpoint,shouldRecover,spawnPlan,type SpawnSpec} from './Course';
+import {SLOPE_DEGREES,SLOPE_LENGTH,SIN_SLOPE,COS_SLOPE,LEVEL_HEIGHT,
+  WALL_HALF_WIDTH,PLAYER_RADIUS,SLAB_THICKNESS,UP,NORMAL,onSlope,
+  slopePosition,nearestCheckpoint,shouldRecover,makeWave,clamp,
+  ACTIVE_CAP,type SpawnItem,type Pattern} from './Course';
 import './style.css';
 type Phase='ready'|'running'|'complete'|'error';
 const canvas=document.getElementById('application-canvas') as HTMLCanvasElement;
@@ -15,174 +16,260 @@ const ui={
  start:$('start') as HTMLButtonElement
 };
 let phase:Phase='ready',elapsed=0,loot=0,hits=0,falls=0,contacts=0,attempts=0;
-let targetX=0,checkpointY=1.8,maxHeight=1.8,spawnedTotal=0;
-let lateralDrags=0,playerPhysics=true;
+let spawnedTotal=0,destroyedTotal=0,spawnWaves=0,maxLive=0;
+let totalRock=0,totalLoot=0,totalBox=0,totalSphere=0;
+let checkpointS=2,maxProgress=2,sideFlicks=0,forwardFlicks=0;
+let lastFlickTime=-100,maxForwardSpeed=0,spawnNextAt=1,spawnWaveIndex=0;
+let swipeChain=0,lastSwipeEnd=-100,pendingImpulse=0,pendingSideImpulse=0;
 let messageUntil=0;
+const WAVE_SEED=1719;
+const FLICK_COOLDOWN=.12;
 function message(text:string){
  ui.toast.textContent=text;ui.toast.classList.add('show');
- messageUntil=elapsed+1.15;
+ messageUntil=elapsed+1;
 }
-const canvasError=(err:unknown)=>{
- phase='error';ui.status.textContent='PHYSICS UNAVAILABLE';
- ui.title.textContent='LOAD ERROR';ui.description.textContent=String(err);
-};
 let game:Awaited<ReturnType<typeof createPhysicsGame>>;
 try{game=await createPhysicsGame(canvas);}
-catch(err){canvasError(err);throw err;}
+catch(err){
+ phase='error';ui.status.textContent='PHYSICS UNAVAILABLE';
+ ui.title.textContent='LOAD ERROR';ui.description.textContent=String(err);
+ throw err;
+}
 const {app,camera,shape}=game;
+(app.systems.rigidbody as {gravity:Vec3}).gravity.set(0,-12,0);
 const mats={
- wall:material('#8175AF'),ridge:material('#BCA8CE'),lip:material('#FFE6C2'),
- rock:material('#EF8A8F'),rockDark:material('#D65B82'),
- ball:material('#F9F8FF',.92),band:material('#48DAD7',.78),
- loot:material('#FFD363',.93),cloud:material('#FFFFFF'),
- green:material('#73D8A9'),gold:material('#FFE79E')
+ road:material('#9A83D1',.7),roadStripe:material('#BEAFE4'),
+ edge:material('#FFD5B6'),rock:material('#EC8791'),
+ rockDark:material('#E66B78'),crate:material('#D97EA5'),
+ rectangle:material('#FFB681'),loot:material('#FFE06D',.94),
+ lootBox:material('#70E6CF',.92),ball:material('#F9FAFE',.93),
+ band:material('#43DCCF',.82),cloud:material('#FFFFFF'),
+ island:material('#88D4CD'),gold:material('#FFF1A9')
 };
-mats.loot.emissive=new Color(.50,.24,.03);
-mats.loot.emissiveIntensity=.7;mats.loot.update();
-const cliff=shape('cliff-real-Bullet-wall','box',[0,22.5,0],
- [WALL_HALF_WIDTH*2,47,.85],mats.wall,'static');
-const ground=shape('cliff-bottom','box',[0,-.32,1.3],[15,.64,5],mats.ridge,'static');
+mats.loot.emissive=new Color(.65,.35,.03);mats.loot.emissiveIntensity=1.1;mats.loot.update();
+const TRACK_CENTER=onSlope(SLOPE_LENGTH/2,0);
+const ramp=shape('sixty-degree-static-Bullet-ramp','box',TRACK_CENTER,
+ [WALL_HALF_WIDTH*2,SLAB_THICKNESS,SLOPE_LENGTH+5],mats.road,'static',SLOPE_DEGREES);
+const ledges:Entity[]=[];
+for(let i=0;i<=24;i++){
+ const s=i*2;
+ const marker=shape('slope-band-'+i,'box',onSlope(s,SLAB_THICKNESS/2+.025),
+ [WALL_HALF_WIDTH*2-.2,.045,.16],
+ i%4===0?mats.edge:mats.roadStripe,false,SLOPE_DEGREES);
+ ledges.push(marker);
+}
+// Side edges are VISUAL GUIDES only. Falling over them is a genuine failure.
 for(let i=0;i<18;i++){
- const y=3+i*2.6;
- const side=i%2===0?-1:1;
- shape('cliff-rock-seam-'+i,'sphere',
- [side*(4.5+(i%4)*.4),y,-.2],[2.0,2.7,1.8],
- i%3===0?mats.ridge:mats.wall);
- if(i%3===0){
-  // Protrusions are actual cliff physics; the center route stays passable.
-  shape('cliff-side-ledger-'+i,'box',[side*4,y+.5,.76],
-   [2.0,.35,.86],mats.lip,'static');
- }
+ const s=2+i*2.6,side=i%2?1:-1;
+ shape('side-cliff-'+i,'sphere',onSlope(s,-2.2,side*(7.7+(i%4)*.5)),
+ [3.3,3.3,3.3],i%3?mats.island:mats.roadStripe);
+ if(i%3===0)shape('distant-cloud-'+i,'sphere',
+  onSlope(s,4.5,side*15),[8,3.8,6.5],mats.cloud);
 }
-for(let i=0;i<12;i++){
- const side=i%2===0?-1:1;
- shape('distant-cliff-'+i,'sphere',
-  [side*(9+i*.7),i*4-2,-10-i%3*3],[8,7+i%4,5],
-  i%3?mats.ridge:mats.green);
-}
-for(let i=0;i<10;i++){
- shape('cloud-'+i,'sphere',
- [i%2?-(13+i*1.5):(13+i*1.5),15+i*3,-18],
- [7+i%3,2.4,4.5],mats.cloud);
-}
-const player=shape('player-dynamic-sphere','sphere',[0,1.8,PLAYER_FRONT_Z],
+const initial=onSlope(2);
+const player=shape('player-dynamic-Bullet-ball','sphere',initial,
  [PLAYER_RADIUS*2,PLAYER_RADIUS*2,PLAYER_RADIUS*2],mats.ball,'dynamic');
-const band=new Entity('visual-ball-equator');
+const band=new Entity('player-ball-stripe');
 band.addComponent('render',{type:'sphere',material:mats.band,castShadows:false});
-band.setLocalPosition(0,.32,0);band.setLocalScale(.82,.18,.82);
+band.setLocalPosition(0,.29,0);band.setLocalScale(.85,.17,.85);
 player.addChild(band);
 const body=player.rigidbody!;
-const finish=shape('cliff-finish','box',[0,LEVEL_HEIGHT+.25,.75],
- [8,.45,.55],mats.gold);
-const dynamicObjects:{spec:SpawnSpec;entity:Entity;born:boolean;collected:boolean}[]=[];
-for(const spec of spawnPlan(1719)){
- const radius=spec.radius;
- const e=shape((spec.kind==='rock'?'falling-rock-':'falling-loot-')+spec.id,
-  'sphere',[spec.lane,3,PLAYER_FRONT_Z+.08],[radius*2,radius*2,radius*2],
-  spec.kind==='rock'?spec.id%2?mats.rockDark:mats.rock:mats.loot,'dynamic');
- e.enabled=false;
- dynamicObjects.push({spec,entity:e,born:false,collected:false});
+const finish=shape('summit-finish','box',onSlope(SLOPE_LENGTH,.55),
+ [WALL_HALF_WIDTH*2,.28,.85],mats.gold,false,SLOPE_DEGREES);
+type DynamicActor={item:SpawnItem;entity:Entity;bornAt:number};
+const active:DynamicActor[]=[];
+const patterns:Record<Pattern,number>={scatter:0,row:0,train:0,diagonal:0,'loot-row':0,mixed:0};
+function disposeActors(){
+ for(const a of active)a.entity.destroy();
+ destroyedTotal+=active.length;active.length=0;
 }
+function spawnActor(item:SpawnItem,sourceS:number){
+ const s=clamp(sourceS+10.5+item.distanceOffset,6,SLOPE_LENGTH+6);
+ const clearance=SLAB_THICKNESS/2+Math.max(...item.size)*.55+1.1;
+ const pos=onSlope(s,clearance,item.lane);
+ const kind=item.kind;
+ const mat=kind==='loot'?(item.shape==='sphere'?mats.loot:mats.lootBox):
+  (item.shape==='sphere'?(item.slot%2?mats.rockDark:mats.rock):
+  item.size[1]>item.size[0]?mats.rectangle:mats.crate);
+ const e=shape((kind==='rock'?'falling-rock-':'falling-loot-')+
+  item.wave+'-'+item.slot,item.shape,pos,item.size,mat,'dynamic',SLOPE_DEGREES);
+ const rb=e.rigidbody!;
+ rb.linearVelocity=new Vec3(0,-1.3,0);
+ if(item.shape==='box')rb.angularVelocity=new Vec3(.2,1.5,0);
+ active.push({item,entity:e,bornAt:elapsed});
+ spawnedTotal++;
+ if(kind==='rock')totalRock++;else totalLoot++;
+ if(item.shape==='box')totalBox++;else totalSphere++;
+ maxLive=Math.max(maxLive,active.length);
+}
+function streamSpawns(playerS:number){
+ if(elapsed<spawnNextAt)return;
+ if(active.length>=ACTIVE_CAP-7){spawnNextAt=elapsed+.35;return;}
+ const wave=makeWave(WAVE_SEED,spawnWaveIndex++);
+ patterns[wave.pattern]++;
+ spawnWaves++;
+ for(const item of wave.items){
+  if(active.length>=ACTIVE_CAP)break;
+  spawnActor(item,playerS);
+ }
+ // Endless sequence of NEW seeded waves, bounded live physics bodies.
+ spawnNextAt=elapsed+(spawnWaves%4===0?.78:1.22);
+}
+function reapActors(playerS:number,p:Vec3){
+ for(let i=active.length-1;i>=0;i--){
+  const a=active[i]!,pos=a.entity.getPosition(),s=slopePosition(pos);
+  if(a.item.kind==='loot'&&p.distance(pos)<1.4){
+   loot++;ui.loot.textContent=String(loot);message('LOOT +1');
+   a.entity.destroy();active.splice(i,1);destroyedTotal++;continue;
+  }
+  // Reclaim Bullet body, collider, render mesh and entity — not hide-only.
+  if(s.progress<playerS-16||s.progress< -4||s.progress>playerS+45||
+     s.normalDistance< -7||pos.y< -10||elapsed-a.bornAt>16){
+    a.entity.destroy();active.splice(i,1);destroyedTotal++;
+  }
+ }
+}
+let lastImpact=-100;
 player.collision!.on('collisionstart',(evt:{other:Entity})=>{
  if(phase!=='running')return;
- if(evt.other.name.startsWith('falling-rock-')){
-  contacts++;hits++;message('WATCH OUT!');
- } else if(evt.other.name.startsWith('cliff-side-ledger-')){
-  contacts++;
+ if(evt.other.name.startsWith('falling-rock-')&&elapsed-lastImpact>.13){
+  contacts++;hits++;lastImpact=elapsed;message('ROCK IMPACT!');
  }
 });
 function reset(){
+ disposeActors();
  phase='running';attempts++;elapsed=0;loot=0;hits=0;falls=0;contacts=0;
- targetX=0;checkpointY=1.8;maxHeight=1.8;spawnedTotal=0;lateralDrags=0;
- body.teleport(0,1.8,PLAYER_FRONT_Z);
+ spawnedTotal=0;destroyedTotal=0;spawnWaves=0;maxLive=0;
+ totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
+ for(const k of Object.keys(patterns) as Pattern[])patterns[k]=0;
+ sideFlicks=0;forwardFlicks=0;maxForwardSpeed=0;
+ checkpointS=2;maxProgress=2;spawnNextAt=.6;spawnWaveIndex=0;
+ swipeChain=0;lastSwipeEnd=-100;lastFlickTime=-100;
+ pendingImpulse=0;pendingSideImpulse=0;
+ body.teleport(...initial);
  body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
- for(const actor of dynamicObjects){
-  actor.born=false;actor.collected=false;actor.entity.enabled=false;
- }
- ui.loot.textContent='0';ui.dialog.classList.add('hidden');message('START CLIMBING!');
+ ui.loot.textContent='0';ui.dialog.classList.add('hidden');
+ message('FLICK UP TO ROLL!');
 }
 ui.start.addEventListener('click',reset);
 ui.start.disabled=false;ui.start.textContent='START CLIMBING →';
-ui.status.textContent='REAL BULLET PHYSICS READY';
-let dragging=false;
-const pointerToLane=(clientX:number)=>{
- targetX=clamp((clientX/window.innerWidth-.5)*8,-3.7,3.7);
- lateralDrags++;
-};
-window.addEventListener('pointerdown',e=>{dragging=true;pointerToLane(e.clientX);});
-window.addEventListener('pointermove',e=>{if(dragging)pointerToLane(e.clientX);});
-window.addEventListener('pointerup',()=>{dragging=false;});
-window.addEventListener('pointercancel',()=>{dragging=false;});
-window.addEventListener('keydown',e=>{
- if(e.code==='Space'||e.code==='Enter'){e.preventDefault();reset();}
- if(e.code==='ArrowLeft'||e.code==='KeyA'){targetX=clamp(targetX-.65,-3.7,3.7);lateralDrags++;}
- if(e.code==='ArrowRight'||e.code==='KeyD'){targetX=clamp(targetX+.65,-3.7,3.7);lateralDrags++;}
+ui.status.textContent='REAL 60° BULLET RAMP READY';
+ui.description.textContent='Flick UP for one physical roll. Flick left/right to dodge. Repeat flicks to build speed. Gravity and collisions can send you backwards or over the edge.';
+ui.title.innerHTML='ROLL <em>UPHILL.</em>';
+function requestFlick(direction:'up'|'left'|'right'){
+ if(phase!=='running'||elapsed-lastFlickTime<FLICK_COOLDOWN)return;
+ const p=player.getPosition(),s=slopePosition(p);
+ if(s.normalDistance>SLAB_THICKNESS/2+PLAYER_RADIUS+1.35)return;
+ lastFlickTime=elapsed;
+ if(direction==='up'){
+  if(elapsed-lastSwipeEnd<.9)swipeChain=Math.min(4,swipeChain+1);
+  else swipeChain=0;
+  lastSwipeEnd=elapsed;forwardFlicks++;
+  pendingImpulse+=7.6+swipeChain*.6;
+  message(swipeChain?'CHAIN x'+(swipeChain+1):'ROLL!');
+ }else{
+  sideFlicks++;pendingSideImpulse+=(direction==='left'?-1:1)*2.8;
+ }
+}
+let pointerStart:{x:number;y:number;id:number}|null=null;
+window.addEventListener('pointerdown',e=>{
+ if(phase!=='running'||(e.target instanceof Element&&e.target.closest('#dialog')))return;
+ pointerStart={x:e.clientX,y:e.clientY,id:e.pointerId};
 });
+window.addEventListener('pointerup',e=>{
+ const first=pointerStart;pointerStart=null;
+ if(!first||first.id!==e.pointerId)return;
+ const dx=e.clientX-first.x,dy=e.clientY-first.y;
+ if(dy< -32&&Math.abs(dy)>Math.abs(dx)*.76)requestFlick('up');
+ else if(Math.abs(dx)>36)requestFlick(dx<0?'left':'right');
+});
+window.addEventListener('pointercancel',()=>{pointerStart=null;});
+window.addEventListener('keydown',e=>{
+ if((e.code==='Space'||e.code==='Enter')&&phase!=='running'){e.preventDefault();reset();return;}
+ if(e.code==='ArrowUp'||e.code==='KeyW'){e.preventDefault();requestFlick('up');}
+ if(e.code==='ArrowLeft'||e.code==='KeyA'){e.preventDefault();requestFlick('left');}
+ if(e.code==='ArrowRight'||e.code==='KeyD'){e.preventDefault();requestFlick('right');}
+ if(e.code==='KeyR'){e.preventDefault();reset();}
+});
+const forwardVelocity=(v:Vec3)=>v.y*SIN_SLOPE-v.z*COS_SLOPE;
 app.on('update',(dt:number)=>{
  const tick=Math.min(dt,.04);
- const p=player.getPosition(),velocity=body.linearVelocity;
+ const p=player.getPosition(),v=body.linearVelocity;
+ const frame=slopePosition(p);
  if(phase==='running'){
   elapsed+=tick;
-  // Real, force-driven magnetically assisted wall climbing.
-  // This is NOT a kinematic path or animated fake rising position.
-  // Inertial lateral steering and damped ascent preserve Bullet impacts.
-  const side=clamp((targetX-p.x)*92-velocity.x*18,-240,240);
-  const upward=61-velocity.y*12;
-  body.applyForce(new Vec3(side,upward,-130));
-  // Torque is a real rigidbody force: decorative texture never spins independently.
-  body.applyTorque(new Vec3(velocity.y*1.2,0,side*.045));
-  maxHeight=Math.max(maxHeight,p.y);
-  checkpointY=nearestCheckpoint(maxHeight);
-  for(const actor of dynamicObjects){
-   if(actor.collected)continue;
-   if(!actor.born && elapsed>=actor.spec.id*.92){
-    actor.born=true;actor.entity.enabled=true;spawnedTotal++;
-    const dropY=clamp(p.y+9+(actor.spec.id%3)*3,9,LEVEL_HEIGHT+9);
-    actor.entity.rigidbody!.teleport(actor.spec.lane,dropY,PLAYER_FRONT_Z+.06);
-    actor.entity.rigidbody!.linearVelocity=new Vec3(0,-1,0);
-   }
-   if(!actor.born)continue;
-   const where=actor.entity.getPosition();
-   if(actor.spec.kind==='loot'&&where.distance(p)<1.45){
-    actor.collected=true;actor.entity.enabled=false;
-    loot++;ui.loot.textContent=String(loot);message('LOOT +1');
-   }
-   if(where.y<p.y-12 || where.z>5 || where.y<-.3){
-    actor.collected=true;actor.entity.enabled=false;
+  // Partial anti-slide traction compensates severe slope only; net physics
+  // still drives the ball DOWNHILL without a flick. No perpetual motor.
+  body.applyForce(new Vec3(0,6.5*SIN_SLOPE,-6.5*COS_SLOPE));
+  if(pendingImpulse){
+   const next=clamp(pendingImpulse,0,32);pendingImpulse=0;
+   const speed=forwardVelocity(v);
+   const bounded=Math.max(0,Math.min(next,(14-speed)*1.4));
+   if(bounded>0){
+    body.applyImpulse(new Vec3(0,bounded*SIN_SLOPE,-bounded*COS_SLOPE));
+    body.applyTorqueImpulse(new Vec3(Math.min(1.35,bounded*.15),0,0));
    }
   }
-  if(shouldRecover(p.x,p.y,p.z)){
-   falls++;const checkpoint=checkpointY;
-   body.teleport(0,checkpoint,PLAYER_FRONT_Z);
+  if(pendingSideImpulse){
+   body.applyImpulse(new Vec3(clamp(pendingSideImpulse,-5,5),0,0));
+   pendingSideImpulse=0;
+  }
+  maxForwardSpeed=Math.max(maxForwardSpeed,forwardVelocity(body.linearVelocity));
+  maxProgress=Math.max(maxProgress,frame.progress);
+  checkpointS=nearestCheckpoint(maxProgress);
+  streamSpawns(frame.progress);
+  reapActors(frame.progress,p);
+  if(shouldRecover(p)){
+   falls++;
+   // Losing progress is meaningful: return to previous checkpoint,
+   // not to the current peak or an invisible perpetual magnet.
+   const checkpoint=Math.max(2,checkpointS-12);
+   body.teleport(...onSlope(checkpoint));
    body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
-   message('BACK TO CHECKPOINT');
+   message('FELL — BACK DOWN!');
   }
-  if(p.y>=LEVEL_HEIGHT){
+  if(frame.progress>=SLOPE_LENGTH){
    phase='complete';ui.title.innerHTML='SUMMIT <em>REACHED!</em>';
-   ui.description.textContent='Loot '+loot+' · Rock impacts '+hits+
-    ' · Falls '+falls+' · Time '+elapsed.toFixed(1)+'s. Climb again?';
+   ui.description.textContent='Loot '+loot+' · Impacts '+hits+' · Falls '+falls+
+    ' · Flicks '+forwardFlicks+' · Time '+elapsed.toFixed(1)+'s. Climb again?';
    ui.start.textContent='CLIMB AGAIN →';ui.dialog.classList.remove('hidden');
   }
   if(elapsed>messageUntil)ui.toast.classList.remove('show');
  }
- const now=camera.getPosition();
- const cameraY=clamp(p.y+4.0,7,LEVEL_HEIGHT+6);
- const ease=clamp(tick*5,0,1);
- camera.setPosition(now.x+(p.x*.20-now.x)*ease,
-  now.y+(cameraY-now.y)*ease,now.z+(19-now.z)*ease);
- camera.lookAt(p.x*.22,p.y+3.1,0);
- ui.progress.style.width=(clamp(p.y/LEVEL_HEIGHT,0,1)*100).toFixed(1)+'%';
+ // Chase camera: behind the ball, ~1.5m below its height, looking steeply
+ // uphill. Above the actual slab along its normal, never top-down.
+ const cameraTarget=new Vec3(
+  p.x*.67,
+  p.y-UP[1]*8+NORMAL[1]*11,
+  p.z-UP[2]*8+NORMAL[2]*11);
+ const now=camera.getPosition(),ease=clamp(tick*5.5,0,1);
+ camera.setPosition(
+  now.x+(cameraTarget.x-now.x)*ease,
+  now.y+(cameraTarget.y-now.y)*ease,
+  now.z+(cameraTarget.z-now.z)*ease);
+ camera.lookAt(p.x*.82,p.y+UP[1]*16,p.z+UP[2]*16);
+ camera.camera!.fov=60;
+ ui.progress.style.width=(clamp(frame.progress/SLOPE_LENGTH,0,1)*100).toFixed(1)+'%';
  if(phase==='running')ui.status.textContent=
-  Math.floor(clamp(p.y,0,LEVEL_HEIGHT))+' / '+LEVEL_HEIGHT+' m · ROCKS '+hits+' · FALLS '+falls;
+  Math.floor(clamp(frame.progress,0,SLOPE_LENGTH))+' / '+SLOPE_LENGTH+
+  ' m SLOPE · FLICKS '+forwardFlicks+' · FALLS '+falls;
 });
 app.start();
 declare global{interface Window{__CLIMBER_TEST__?:{snapshot:()=>Record<string,unknown>}}}
 window.__CLIMBER_TEST__={snapshot:()=>({
- phase,physicsLoaded:playerPhysics,rigidbodyType:body.type,
+ phase,physicsLoaded:true,rigidbodyType:body.type,
  x:player.getPosition().x,y:player.getPosition().y,z:player.getPosition().z,
- elapsed,loot,hits,falls,contacts,attempts,targetX,
- checkpointY,maxHeight,spawnedTotal,liveFalling:dynamicObjects.filter(x=>x.born&&!x.collected).length,
- levelHeight:LEVEL_HEIGHT,wallCollider:cliff.rigidbody?.type,
- groundCollider:ground.rigidbody?.type,finishVisual:!!finish.render,
- ballVelocityY:body.linearVelocity.y,lateralDrags
+ progress:slopePosition(player.getPosition()).progress,
+ normalDistance:slopePosition(player.getPosition()).normalDistance,
+ elapsed,loot,hits,falls,contacts,attempts,
+ checkpointS,maxProgress,spawnedTotal,destroyedTotal,spawnWaves,maxLive,
+ liveFalling:active.length,activeCap:ACTIVE_CAP,
+ totalRock,totalLoot,totalBox,totalSphere,patterns,
+ slopeDegrees:SLOPE_DEGREES,slopeLength:SLOPE_LENGTH,
+ levelHeight:LEVEL_HEIGHT,rampCollider:ramp.rigidbody?.type,
+ finishVisual:!!finish.children.length,
+ forwardSpeed:forwardVelocity(body.linearVelocity),
+ maxForwardSpeed,forwardFlicks,sideFlicks,swipeChain,
+ cameraY:camera.getPosition().y,cameraZ:camera.getPosition().z,
+ ballVelocityY:body.linearVelocity.y
 })};
