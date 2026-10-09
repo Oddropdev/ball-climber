@@ -814,5 +814,6 @@ window.__CLIMBER_TEST__={
  cameraLowMode:lowCameraMode,
  cameraDrop:lowCameraDrop(arrivalCameraBlend,lowCameraMode),
  cameraY:camera.getPosition().y,cameraZ:camera.getPosition().z,
+ ballVelocityX:body.linearVelocity.x,
  ballVelocityY:body.linearVelocity.y
 })};
