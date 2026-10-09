@@ -53,7 +53,8 @@ export function makeRng(seed:number){
 export type ObjectKind='rock'|'loot';
 export type ObjectShape='sphere'|'box'|'table'|'chair'|'light'|
  'barrel'|'beam'|'bouncer'|'hammer'|'cross'|'dumbbell'|
- 'mace'|'gate'|'paddle';
+ 'mace'|'gate'|'paddle'|'pyramid'|'triangle'|'banana'|
+ 'car'|'sofa'|'stool'|'boot'|'glove'|'hat';
 export type Pattern='scatter'|'row'|'train'|'diagonal'|'loot-row'|'mixed'|
  'cluster'|'giant'|'spiral'|'loot-train'|'wall'|'burst';
 export type SpawnItem={
