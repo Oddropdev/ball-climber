@@ -7,7 +7,7 @@ export const MYSTERY_BOX_SIZE=7.2;
 export function warmStartItems(seed:number):Array<{item:SpawnItem;progress:number}>{
  const rand=makeRng((seed^0x51d58a47)>>>0);
  const shapes:ObjectShape[]=['box','sphere','barrel','table',
-  'light','beam','chair','bouncer'];
+  'sphere','beam','chair','bouncer'];
  return PREWARM_PROGRESS.map((progress,i)=>{
   const shape=shapes[i]!;
   const kind=i===1||i===4||i===7?'loot':'rock';
