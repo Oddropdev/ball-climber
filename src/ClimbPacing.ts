@@ -6,10 +6,14 @@ export const PREWARM_PROGRESS=[17,22,29,36,42,48,53,57] as const;
 export const MYSTERY_BOX_HEIGHT=13.5;
 export const MYSTERY_BOX_SIZE=7.2;
 const PROFILE:Record<Biome,readonly ObjectShape[]>={
- rocky:['hammer','mace','barrel','beam','bouncer','dumbbell'],
- stormwall:['cross','paddle','mace','bouncer','beam','barrel'],
- scrapfall:['dumbbell','gate','hammer','cross','barrel','beam'],
- candy:['mace','paddle','bouncer','cross','dumbbell','gate']
+ rocky:['hammer','mace','barrel','beam','bouncer','dumbbell',
+  'pyramid','car','stool','glove','banana'],
+ stormwall:['cross','paddle','mace','bouncer','beam','barrel',
+  'triangle','sofa','boot','hat','car'],
+ scrapfall:['dumbbell','gate','hammer','cross','barrel','beam',
+  'car','sofa','stool','boot','pyramid'],
+ candy:['mace','paddle','bouncer','cross','dumbbell','gate',
+  'banana','glove','hat','triangle','pyramid']
 };
 const shapeSize=(shape:ObjectShape,rng:()=>number):V3=>{
  switch(shape){
@@ -25,6 +29,15 @@ const shapeSize=(shape:ObjectShape,rng:()=>number):V3=>{
  case 'gate':return [2.6+rng()*.45,3.0+rng()*.65,1.35+rng()*.3];
  case 'paddle':return [2.6+rng()*.5,2.6+rng()*.65,1.05+rng()*.25];
  case 'light':return [.72,.65,.65];
+ case 'pyramid':return [2.1+rng()*.6,2.45+rng()*.55,2.0+rng()*.35];
+ case 'triangle':return [2.25+rng()*.45,2.9+rng()*.55,1.0+rng()*.3];
+ case 'banana':return [2.75+rng()*.55,1.65+rng()*.35,.85+rng()*.25];
+ case 'car':return [3.1+rng()*.45,1.8+rng()*.3,1.95+rng()*.35];
+ case 'sofa':return [3.1+rng()*.6,2.25+rng()*.3,1.8+rng()*.4];
+ case 'stool':return [1.6+rng()*.35,2.6+rng()*.3,1.5+rng()*.3];
+ case 'boot':return [1.9+rng()*.45,3.0+rng()*.4,2.3+rng()*.4];
+ case 'glove':return [2.3+rng()*.4,2.8+rng()*.4,1.0+rng()*.3];
+ case 'hat':return [3.2+rng()*.45,1.65+rng()*.3,3.1+rng()*.4];
  default:{const n=1.0+rng()*.32;return [n,n,n];}
  }
 };

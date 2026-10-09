@@ -34,7 +34,7 @@ test('C1.5: relocated physical magnet brakes the lip and releases upward force a
  expect(double[2]).toBeCloseTo(m[2]*2);
 });
 test('C1.2: six self-authored models have bounded real compound collider parts',()=>{
- expect(COMPLEX_SHAPES).toHaveLength(6);
+ expect(COMPLEX_SHAPES).toHaveLength(15); // original six plus C1.7 nine forms
  for(const shape of COMPLEX_SHAPES){
   const pieces=obstacleParts({wave:0,slot:0,kind:'rock',shape,delay:0,
    lane:0,size:[3,3,2],mass:12,giant:false});

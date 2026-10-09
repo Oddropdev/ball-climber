@@ -26,19 +26,19 @@ export function rotorSpecs(index:number,seed:number):RotorSpec[]{
     radius,phase:-phase,pairRole:'right'}
   ];
  }
- const count=index>=9?2:1;
+ // Central rotor is an EARLY single set-piece, never repeated along
+ // one linear run. Later obstacles come from debris and paired shoulders.
  const kinds:RotorKind[]=['cross','hammer','platform'];
- const candidates=count===1?[34]:[25,46];
- return Array.from({length:count},(_,id)=>({
-  id,
-  kind:kinds[(index+id)%kinds.length]!,
-  progress:candidates[id]!+(r()-.5)*3,
+ return [{
+  id:0,
+  kind:kinds[index%kinds.length]!,
+  progress:17+(r()-.5)*3,
   speed:(10+r()*6)*Math.PI*2/60,
   direction:r()<.5?-1:1,
   radius:2.45+r()*.55,
   phase:r()*Math.PI*2,
   lane:0
- }));
+ }];
 }
 // Conservative swept-collider bound includes 0.24m blade half-width.
 // A full-diameter player ball needs only 1.16m plus steering clearance.

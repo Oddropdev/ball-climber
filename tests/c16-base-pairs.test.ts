@@ -37,7 +37,7 @@ test('C1.6: short special pad camera never tunnels below real floor',()=>{
  const t=baseCameraTransition({x:0,y:resting[1],z:resting[2]});
  expect(t.slopeBlend).toBe(0);
  expect(t.camera[1]).toBeGreaterThan(BASE_DECK_TOP+1);
- expect(t.camera[2]).toBeLessThan(BASE_DECK_BACK_Z);
+ expect(t.camera[2]).toBeGreaterThan(BASE_DECK_BACK_Z); // new unobscured C1.7 camera above rear guard
  const mid=onSlope(4.5);
  expect(baseCameraTransition({x:mid[0],y:mid[1],z:mid[2]}).slopeBlend).toBeCloseTo(.5);
  const uphill=onSlope(8);
