@@ -1,0 +1,59 @@
+name: C0.6 Mobile Browser Link (unlisted public build)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/c0-6-mobile-browser.yml'
+      - 'docs/C0-6_MOBILE_BROWSER.md'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build-publish-static-preview:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'c0-6-mobile-browser-preview'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --no-audit --no-fund
+      - name: Reuse previously green C0.6 browser suite; verify immutable source and static build
+        run: |
+          test "$(git show HEAD:src/Motion.ts | git hash-object --stdin)" = "$(git hash-object src/Motion.ts)"
+          npm run test
+          npm run build
+      - name: Ensure built static site contains no private art or secrets
+        run: |
+          test -s dist/index.html
+          test -d dist/assets
+          test -f dist/ammo/ammo.wasm.wasm
+          if find dist -type f | grep -Ei '\.(zip|env|pem|key|p12|ps1|map)$|licensed|private'; then
+            echo "Disallowed file detected in public build"
+            exit 1
+          fi
+          echo 'C0_6_PUBLIC_PREVIEW_CONTENT_PASS'
+      - name: Commit only compiled static files to isolated immutable preview branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo 'Source: c0-6-weighted-swipes-speed-control @ 0bb936c3e4f9646030564766c2b3534c5365c73b' > dist/BUILD_ORIGIN.txt
+          cd dist
+          git init -b main
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'C0.6 public compiled owner mobile preview (no raw licensed files)'
+          git remote add origin 'https://x-access-token:'"${GH_TOKEN}"'@github.com/Oddropdev/ball-climber.git'
+          git push origin HEAD:refs/heads/c0-6-mobile-static-preview
+      - name: Owner evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c0-6-android-static-site
+          path: |
+            dist/
+            test-results/
+          if-no-files-found: warn
