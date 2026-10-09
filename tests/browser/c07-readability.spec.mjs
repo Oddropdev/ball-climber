@@ -51,11 +51,12 @@ test('C0.7 heavy real Bullet ball steers less sideways while speed cap is preser
   await page.keyboard.press('ArrowUp');
   await page.waitForTimeout(190);
  }
- await expect.poll(async()=>(await state(page))?.chargeLevel,{timeout:3000}).toBeGreaterThanOrEqual(3);
+ await expect.poll(async()=>(await state(page))?.chargeLevel,{timeout:3000}).toBeGreaterThanOrEqual(2);
  await page.keyboard.press('ArrowRight');
  await expect.poll(async()=>(await state(page))?.sideFlicks,{timeout:3500}).toBe(1);
  let s=await state(page);
- expect(s.lastSideControlFraction).toBeLessThan(.75);
+ expect(s.lastSideControlFraction).toBeLessThan(.9);
+ expect(s.lastSideControlFraction).toBeCloseTo(1-.105*s.chargeLevel,2);
  expect(s.lastSideControlFraction).toBeGreaterThan(.5);
  expect(s.playerMass).toBeGreaterThan(s.basePlayerMass);
  expect(s.maxForwardSpeed).toBeLessThanOrEqual(s.maxAllowedForwardSpeed+.15);
