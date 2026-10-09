@@ -1,11 +1,11 @@
 // C0.2 — genuine 60° Bullet slope. No animation-driven climbing.
 // One upward swipe = one finite roll+forward impulse. Left/right = one lateral impulse.
-import {Entity,Vec3,Color,type RigidBodyComponent} from 'playcanvas';
+import {Entity,Vec3,Color,Texture,PIXELFORMAT_RGBA8} from 'playcanvas';
 import {createPhysicsGame,material} from './Physics';
 import {SLOPE_DEGREES,SLOPE_LENGTH,SIN_SLOPE,COS_SLOPE,LEVEL_HEIGHT,
   WALL_HALF_WIDTH,PLAYER_RADIUS,SLAB_THICKNESS,UP,NORMAL,onSlope,
   slopePosition,nearestCheckpoint,shouldRecover,makeWave,clamp,
-  ACTIVE_CAP,type SpawnItem,type Pattern} from './Course';
+  ACTIVE_CAP,MAX_ROCKS,MAX_LOOT,EMITTER_S,PATTERNS,type SpawnItem,type Pattern} from './Course';
 import './style.css';
 type Phase='ready'|'running'|'complete'|'error';
 const canvas=document.getElementById('application-canvas') as HTMLCanvasElement;
@@ -17,6 +17,8 @@ const ui={
 };
 let phase:Phase='ready',elapsed=0,loot=0,hits=0,falls=0,contacts=0,attempts=0;
 let spawnedTotal=0,destroyedTotal=0,spawnWaves=0,maxLive=0;
+let liveRocks=0,liveLoot=0,peakRocks=0,peakLoot=0,spawnSkipped=0;
+let heavyHits=0,giantsSpawned=0,maxRockMass=0;
 let totalRock=0,totalLoot=0,totalBox=0,totalSphere=0;
 let checkpointS=2,maxProgress=2,sideFlicks=0,forwardFlicks=0;
 let lastFlickTime=-100,maxForwardSpeed=0,spawnNextAt=1,spawnWaveIndex=0;
@@ -35,7 +37,7 @@ catch(err){
  ui.title.textContent='LOAD ERROR';ui.description.textContent=String(err);
  throw err;
 }
-const {app,camera,shape}=game;
+const {app,camera,shape,device,viewport}=game;
 (app.systems.rigidbody as {gravity:Vec3}).gravity.set(0,-12,0);
 const mats={
  road:material('#9A83D1',.7),roadStripe:material('#BEAFE4'),
@@ -76,6 +78,25 @@ player.addChild(band);
 const body=player.rigidbody!;
 const finish=shape('summit-finish','box',onSlope(SLOPE_LENGTH,.55),
  [WALL_HALF_WIDTH*2,.28,.85],mats.gold,false,SLOPE_DEGREES);
+// All the hazards originate at this giant ? box above the summit.
+// Procedural license-free texture, visible from the climbing camera.
+const face=document.createElement('canvas');face.width=256;face.height=256;
+const ink=face.getContext('2d');
+if(!ink)throw Error('2D canvas unavailable for mystery box');
+ink.fillStyle='#8550C9';ink.fillRect(0,0,256,256);
+ink.strokeStyle='#FFE59A';ink.lineWidth=16;ink.strokeRect(12,12,232,232);
+ink.fillStyle='#FFF9A3';ink.shadowColor='#FFD479';ink.shadowBlur=18;
+ink.textAlign='center';ink.textBaseline='middle';ink.font='900 188px Arial';
+ink.fillText('?',128,135);
+const tex=new Texture(device,{width:256,height:256,format:PIXELFORMAT_RGBA8,mipmaps:true});
+tex.setSource(face);
+const boxMaterial=material('#FFFFFF',.85);
+boxMaterial.diffuseMap=tex;boxMaterial.emissive=new Color(.18,.09,.28);
+boxMaterial.emissiveIntensity=.75;boxMaterial.update();
+const mysteryBox=shape('single-summit-mystery-question-box','box',
+ onSlope(SLOPE_LENGTH+4,3.4),[5.3,5.3,5.3],boxMaterial);
+const chute=shape('mystery-summit-drop-port','cylinder',
+ onSlope(SLOPE_LENGTH+2.7,1.1),[3.3,.34,3.3],mats.gold);
 type DynamicActor={item:SpawnItem;entity:Entity;bornAt:number};
 const active:DynamicActor[]=[];
 const patterns:Record<Pattern,number>={scatter:0,row:0,train:0,diagonal:0,'loot-row':0,mixed:0};
@@ -159,16 +180,16 @@ ui.title.innerHTML='ROLL <em>UPHILL.</em>';
 function requestFlick(direction:'up'|'left'|'right'){
  if(phase!=='running'||elapsed-lastFlickTime<FLICK_COOLDOWN)return;
  const p=player.getPosition(),s=slopePosition(p);
- if(s.normalDistance>SLAB_THICKNESS/2+PLAYER_RADIUS+1.35)return;
+ if(s.normalDistance>SLAB_THICKNESS/2+PLAYER_RADIUS+1.8)return;
  lastFlickTime=elapsed;
  if(direction==='up'){
   if(elapsed-lastSwipeEnd<.9)swipeChain=Math.min(4,swipeChain+1);
   else swipeChain=0;
   lastSwipeEnd=elapsed;forwardFlicks++;
-  pendingImpulse+=7.6+swipeChain*.6;
+  pendingImpulse+=11.6+swipeChain*1.6;
   message(swipeChain?'CHAIN x'+(swipeChain+1):'ROLL!');
  }else{
-  sideFlicks++;pendingSideImpulse+=(direction==='left'?-1:1)*2.8;
+  sideFlicks++;pendingSideImpulse+=(direction==='left'?-1:1)*3.65;
  }
 }
 let pointerStart:{x:number;y:number;id:number}|null=null;
@@ -202,22 +223,22 @@ app.on('update',(dt:number)=>{
   // still drives the ball DOWNHILL without a flick. No perpetual motor.
   body.applyForce(new Vec3(0,6.5*SIN_SLOPE,-6.5*COS_SLOPE));
   if(pendingImpulse){
-   const next=clamp(pendingImpulse,0,32);pendingImpulse=0;
+   const next=clamp(pendingImpulse,0,42);pendingImpulse=0;
    const speed=forwardVelocity(v);
-   const bounded=Math.max(0,Math.min(next,(14-speed)*1.4));
+   const bounded=Math.max(0,Math.min(next,(23-speed)*1.4));
    if(bounded>0){
     body.applyImpulse(new Vec3(0,bounded*SIN_SLOPE,-bounded*COS_SLOPE));
-    body.applyTorqueImpulse(new Vec3(Math.min(1.35,bounded*.15),0,0));
+    body.applyTorqueImpulse(new Vec3(Math.min(2.75,bounded*.20),0,0));
    }
   }
   if(pendingSideImpulse){
-   body.applyImpulse(new Vec3(clamp(pendingSideImpulse,-5,5),0,0));
+   body.applyImpulse(new Vec3(clamp(pendingSideImpulse,-7,7),0,0));
    pendingSideImpulse=0;
   }
   maxForwardSpeed=Math.max(maxForwardSpeed,forwardVelocity(body.linearVelocity));
   maxProgress=Math.max(maxProgress,frame.progress);
   checkpointS=nearestCheckpoint(maxProgress);
-  streamSpawns(frame.progress);
+  streamSpawns();
   reapActors(frame.progress,p);
   if(shouldRecover(p)){
    falls++;
