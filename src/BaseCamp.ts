@@ -29,6 +29,17 @@ export function needsBaseSafetyCatch(pos:{x:number;y:number;z:number}){
  // guard. Normal gameplay uses physically colliding deck + rails.
  return isInsideBaseCamp(pos)&&Math.abs(pos.x)>BASE_DECK_WIDTH/2+.72;
 }
+
+// Rest pose prevents the steep chase camera from clipping UNDER the
+// horizontal deck. From slope progress 3m→6m the original C1.5 uphill
+// camera is restored exactly, including its aim, pitch and follow.
+export function baseCameraTransition(pos:{x:number;y:number;z:number}){
+ const progress=slopePosition(pos).progress;
+ const slopeBlend=Math.max(0,Math.min(1,(progress-3)/3));
+ const camera:V3=[pos.x*.78,BASE_DECK_TOP+1.55,
+  Math.min(BASE_DECK_BACK_Z-1.0,pos.z+2.2)];
+ return {slopeBlend,camera};
+}
 export function buildBaseCamp(shape:Shape,
  mats:{road:StandardMaterial;trim:StandardMaterial;marker:StandardMaterial}){
  const nodes:Entity[]=[];
