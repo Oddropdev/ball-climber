@@ -7,6 +7,8 @@ import {makeFallingObstacle,isComplexShape} from './ObstacleShapes';
 import {summitMagnetForce} from './SummitMagnet';
 import {buildRotorField,type RotorField} from './Rotors';
 import {rushPack} from './RushPack';
+import {INFINITE_SLOPE_LENGTH,summitCenterZ,steepSlopeCamera,
+ cameraPitchDegrees} from './InfiniteGeometry';
 import {chairGauntlet} from './ChairGauntlet';
 import {C13_MAX_COMPOUND_FURNITURE,sidewaysControl,sideDodgeImpulse,
  shouldRecoverInfinite,lowCameraDrop,closeChaseOffset} from './ClimbFeel';
@@ -35,6 +37,9 @@ const infiniteMode=params.get('mode')==='infinite';
 const testMode=infiniteMode&&params.get('test')==='1';
 const lowCameraMode=infiniteMode&&params.get('camera')!=='classic';
 const closeCameraMode=lowCameraMode&&params.get('camera')!=='low';
+const steepChaseMode=closeCameraMode&&params.get('camera')!=='close';
+const courseLength=infiniteMode?INFINITE_SLOPE_LENGTH:SLOPE_LENGTH;
+const emitterProgress=infiniteMode?courseLength+2.5:EMITTER_S;
 const saveKey='oddrop-ball-climber-c1-v1';
 function readSave():ClimbSave{
  if(!infiniteMode)return safeSave(null);
@@ -133,11 +138,11 @@ ghostMat.depthWrite=false;ghostMat.update();
 const ghostNearMat=material('#EB8995',.38);
 ghostNearMat.opacity=.045;ghostNearMat.blendType=BLEND_NORMAL;
 ghostNearMat.depthWrite=false;ghostNearMat.update();
-const TRACK_CENTER=onSlope(SLOPE_LENGTH/2,0);
+const TRACK_CENTER=onSlope(courseLength/2,0);
 const ramp=shape('sixty-degree-static-Bullet-ramp','box',TRACK_CENTER,
- [WALL_HALF_WIDTH*2,SLAB_THICKNESS,SLOPE_LENGTH+5],mats.road,'static',SLOPE_DEGREES);
+ [WALL_HALF_WIDTH*2,SLAB_THICKNESS,courseLength+5],mats.road,'static',SLOPE_DEGREES);
 const ledges:Entity[]=[];
-for(let i=0;i<=24;i++){
+for(let i=0;i<=courseLength/2;i++){
  const s=i*2;
  const marker=shape('slope-band-'+i,'box',onSlope(s,SLAB_THICKNESS/2+.025),
  [WALL_HALF_WIDTH*2-.2,.045,.16],
@@ -226,12 +231,12 @@ const boxMaterial=material('#FFFFFF',.85);
 boxMaterial.diffuseMap=tex;boxMaterial.emissive=new Color(.18,.09,.28);
 boxMaterial.emissiveIntensity=.75;boxMaterial.update();
 const mysteryBox=shape('single-summit-mystery-question-box','box',
- infiniteMode?onSlope(SLOPE_LENGTH+14,MYSTERY_BOX_HEIGHT):
+ infiniteMode?onSlope(courseLength+14,MYSTERY_BOX_HEIGHT):
   onSlope(SLOPE_LENGTH+4,3.4),
  infiniteMode?[MYSTERY_BOX_SIZE,MYSTERY_BOX_SIZE,MYSTERY_BOX_SIZE]:
   [5.3,5.3,5.3],boxMaterial);
 const chute=shape('mystery-summit-drop-port','cylinder',
- infiniteMode?onSlope(SLOPE_LENGTH+7,6):
+ infiniteMode?onSlope(courseLength+7,6):
   onSlope(SLOPE_LENGTH+2.7,1.1),
  infiniteMode?[4.5,.34,4.5]:[3.3,.34,3.3],mats.gold);
 type RenderSurface={instance:MeshInstance;material:Material};
@@ -264,7 +269,7 @@ function spawnActor(item:SpawnItem,earlyProgress?:number){
  // Genuine physics origin: the summit, NOT an emitter moving with the player.
  const departureX=item.lane*.13;
  const clearance=SLAB_THICKNESS/2+Math.max(...item.size)*.65+1.1;
- const position=onSlope(earlyProgress??EMITTER_S,clearance,
+ const position=onSlope(earlyProgress??emitterProgress,clearance,
   earlyProgress===undefined?departureX:item.lane);
  const mat=item.shape==='light'?mats.light:item.kind==='loot'?
   (item.shape==='sphere'?mats.loot:mats.lootBox):
@@ -365,7 +370,7 @@ function reapActors(playerS:number,p:Vec3){
   }
   // Entity.destroy() releases the real Bullet body, not just the visual.
   if(loc.progress<Math.max(-4,playerS-18)||loc.progress< -6||
-   loc.progress>EMITTER_S+10||loc.normalDistance< -9||
+   loc.progress>emitterProgress+10||loc.normalDistance< -9||
    pos.y< -12||elapsed-actor.bornAt>HAZARD_MAX_AGE_SECONDS)removeActor(i);
  }
 }
@@ -377,7 +382,7 @@ player.collision!.on('collisionstart',(evt:{other:Entity})=>{
   const progress=slopePosition(p).progress;
   summitContactEvents++;
   lastSummitContactProgress=progress;
-  if(body.type==='dynamic'&&progress>=SLOPE_LENGTH-1.5&&
+  if(body.type==='dynamic'&&progress>=courseLength-1.5&&
     p.y>=levelScene.summitTop+PLAYER_RADIUS-.35&&
     p.z<-23.4&&Math.abs(p.x)<=WALL_HALF_WIDTH)
    summitContactPending=true;
@@ -470,7 +475,8 @@ function enterSummit(){
  const pos=player.getPosition();
  body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
  body.type='kinematic';
- body.teleport(clamp(pos.x,-3,3),levelScene.summitTop+PLAYER_RADIUS+.07,-30.5);
+ body.teleport(clamp(pos.x,-3,3),levelScene.summitTop+PLAYER_RADIUS+.07,
+  summitCenterZ(currentSpec.slopeLength));
  disposeActors();setCharge(0);peakChargeLevel=0;
  pendingImpulse=0;pendingSideImpulse=0;
  save=bankSummitLoot(save,loot);persist();
@@ -628,7 +634,7 @@ app.on('update',(dt:number)=>{
   // it arrests the launch trajectory and brings the ball onto the collider.
   if(infiniteMode&&levelScene){
    const pull=summitMagnetForce(frame.progress,p,body.linearVelocity,
-    levelScene.summitTop,PLAYER_RADIUS,body.mass);
+    levelScene.summitTop,PLAYER_RADIUS,body.mass,courseLength);
    if(pull){
     body.applyForce(new Vec3(...pull));
     magnetTicks++;
@@ -650,14 +656,15 @@ app.on('update',(dt:number)=>{
   maxForwardSpeed=Math.max(maxForwardSpeed,forwardVelocity(body.linearVelocity));
   maxProgress=Math.max(maxProgress,frame.progress);
   checkpointS=nearestCheckpoint(maxProgress);
-  if(!infiniteMode||frame.progress<45)streamSpawns();
+  if(!infiniteMode||frame.progress<courseLength-3)streamSpawns();
   else pending.length=0;
   reapActors(frame.progress,p);
   // Tilted slope recovery is invalid on a horizontal summit surface.
-  const summitApproach=infiniteMode&&frame.progress>=46;
+  const summitApproach=infiniteMode&&frame.progress>=courseLength-2;
   const offSummit=summitApproach&&(
    Math.abs(p.x)>WALL_HALF_WIDTH+PLAYER_RADIUS+.55||
-   p.y<(levelScene?.summitTop??0)-8||p.z< -41);
+   p.y<(levelScene?.summitTop??0)-8||
+   p.z<summitCenterZ(courseLength)-10.5);
   const fell=infiniteMode?shouldRecoverInfinite(p):shouldRecover(p);
   if(fell&&(!summitApproach||offSummit)){
    falls++;
@@ -684,7 +691,7 @@ app.on('update',(dt:number)=>{
  // A resilient chase camera ALWAYS re-centers on the actual displaced
  // ball, rather than staying anchored to an uphill point after impacts.
  const summitBlend=infiniteMode?smoothSummitBlend(frame.progress,
-   phase==='summit'):0;
+   phase==='summit',courseLength):0;
  arrivalCameraBlend+=(summitBlend-arrivalCameraBlend)*clamp(tick*6,0,1);
  const offsets=summitCameraOffsets(arrivalCameraBlend);
  const closeChase=closeChaseOffset(arrivalCameraBlend,closeCameraMode);
@@ -723,9 +730,9 @@ app.on('update',(dt:number)=>{
   }
   peakGhosted=Math.max(peakGhosted,ghostedActors);
  }
- ui.progress.style.width=(clamp(frame.progress/SLOPE_LENGTH,0,1)*100).toFixed(1)+'%';
+ ui.progress.style.width=(clamp(frame.progress/courseLength,0,1)*100).toFixed(1)+'%';
  if(phase==='running')ui.status.textContent=
-  Math.floor(clamp(frame.progress,0,SLOPE_LENGTH))+' / '+SLOPE_LENGTH+
+  Math.floor(clamp(frame.progress,0,courseLength))+' / '+courseLength+
   'm · MASS ×'+(body.mass/BASE_PLAYER_MASS).toFixed(1)+
   ' · FALLS '+falls;
 });
@@ -756,7 +763,7 @@ window.__CLIMBER_TEST__={
  approachMagnet:testMode?()=>{
   if(phase!=='running'||body.type!=='dynamic')return;
   // Test the real dynamic approach, rather than spoofing a collision.
-  body.teleport(...onSlope(44.5));
+  body.teleport(...onSlope(courseLength-3.5));
   body.linearVelocity=new Vec3(0,6.3,-3.65);
   body.angularVelocity=new Vec3();
  }:undefined,
@@ -768,7 +775,8 @@ window.__CLIMBER_TEST__={
   // platform contact, NOT a naturally steered full uphill run.
   if(!levelScene)return;
   summitContactPending=false;
-  body.teleport(0,levelScene.summitTop+PLAYER_RADIUS+2.0,-30.5);
+  body.teleport(0,levelScene.summitTop+PLAYER_RADIUS+2.0,
+   summitCenterZ(currentSpec.slopeLength));
   body.linearVelocity=new Vec3(0,-1.0,-.1);
   body.angularVelocity=new Vec3();
  }:undefined,
@@ -786,6 +794,8 @@ window.__CLIMBER_TEST__={
   gauntletActors,gauntletChairs,gauntletLoot,rushActors,rushChairs,
   rotorCount:rotorField?.count??0,
   rotorKinds:rotorField?.specs.map(p=>p.kind)??[],
+  rotorPairs:rotorField?.specs.map(p=>({lane:p.lane??0,
+   direction:p.direction,role:p.pairRole??null,speed:p.speed}))??[],
   rotorTypes:rotorField?.types??[],
   rotorTurns:rotorField?.turns??0,
   rotorFrames:rotorField?.updatedFrames??0,
@@ -824,7 +834,7 @@ window.__CLIMBER_TEST__={
   a.entity.collision?.type==='compound'&&a.entity.rigidbody?.type==='dynamic').length,
  minFurnitureOpening:active.filter(a=>a.item.shape==='table'||a.item.shape==='chair')
    .reduce((min,a)=>Math.min(min,furnitureOpening(a.item).width),100),
- emitterProgress:EMITTER_S,
+ emitterProgress,
   mysteryPositionY:mysteryBox.getPosition().y,
   mysterySize:infiniteMode?MYSTERY_BOX_SIZE:5.3,
   mysteryVisible:mysteryBox.enabled,
@@ -835,8 +845,10 @@ window.__CLIMBER_TEST__={
  canvasClientHeight:canvas.getBoundingClientRect().height,
  renderWidth:device.width,renderHeight:device.height,
  totalRock,totalLoot,totalBox,totalSphere,patterns,
- slopeDegrees:SLOPE_DEGREES,slopeLength:SLOPE_LENGTH,
- levelHeight:LEVEL_HEIGHT,rampCollider:ramp.rigidbody?.type,
+ slopeDegrees:SLOPE_DEGREES,slopeLength:courseLength,
+ legacySlopeLength:SLOPE_LENGTH,
+ levelHeight:courseLength*SIN_SLOPE,legacyLevelHeight:LEVEL_HEIGHT,
+ rampCollider:ramp.rigidbody?.type,
  finishVisual:!!finish.children.length,
  forwardSpeed:forwardVelocity(body.linearVelocity),
  maxForwardSpeed,forwardFlicks,sideFlicks,swipeChain,
