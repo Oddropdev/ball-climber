@@ -171,7 +171,7 @@ function reapActors(playerS:number,p:Vec3){
    removeActor(i);continue;
   }
   // Entity.destroy() releases the real Bullet body, not just the visual.
-  if(loc.progress<Math.min(-3,playerS-18)||loc.progress< -6||
+  if(loc.progress<Math.max(-4,playerS-18)||loc.progress< -6||
    loc.progress>EMITTER_S+10||loc.normalDistance< -9||
    pos.y< -12||elapsed-actor.bornAt>13)removeActor(i);
  }
