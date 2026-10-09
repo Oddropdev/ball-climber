@@ -15,14 +15,36 @@ import {SLOPE_DEGREES,SLOPE_LENGTH,SIN_SLOPE,COS_SLOPE,LEVEL_HEIGHT,
   slopePosition,nearestCheckpoint,shouldRecover,makeWave,clamp,
   ACTIVE_CAP,MAX_ROCKS,MAX_LOOT,HAZARD_SOFT_TARGET,LOOT_SOFT_TARGET,
   EMITTER_S,PATTERNS,type SpawnItem,type Pattern} from './Course';
+import {levelSpec,type LevelSpec} from './LevelSpec';
+import {buildClimbLevel,type ClimbLevel} from './ClimbLevel';
+import {SKINS,safeSave,purchaseSkin,bankSummitLoot,unlockNextLevel,
+ type ClimbSave} from './SkinShop';
 import './style.css';
-type Phase='ready'|'running'|'complete'|'error';
+type Phase='ready'|'running'|'summit'|'complete'|'error';
+const params=new URL(window.location.href).searchParams;
+const infiniteMode=params.get('mode')==='infinite';
+const testMode=infiniteMode&&params.get('test')==='1';
+const saveKey='oddrop-ball-climber-c1-v1';
+function readSave():ClimbSave{
+ if(!infiniteMode)return safeSave(null);
+ try{return safeSave(JSON.parse(localStorage.getItem(saveKey)||'null'));}
+ catch{return safeSave(null);}
+}
+let save=readSave(),currentSpec:LevelSpec=levelSpec(save.level);
+let levelScene:ClimbLevel|null=null;
+let stagedLevels=0,disposedLevels=0,summitEvents=0,onSummit=false;
+let summitContactEvents=0,summitContactPending=false;
+let lastSummitContactProgress=0,verifiedSummitArrivals=0;
 const canvas=document.getElementById('application-canvas') as HTMLCanvasElement;
 const $=(id:string)=>document.getElementById(id)!;
 const ui={
  status:$('status'),progress:$('progress'),loot:$('loot'),toast:$('toast'),
  dialog:$('dialog'),title:$('title'),description:$('description'),
- start:$('start') as HTMLButtonElement
+ start:$('start') as HTMLButtonElement,
+ badge:$('level-badge'),summary:$('summit-summary'),
+ shop:$('shop-button') as HTMLButtonElement,
+ shopPanel:$('shop-panel'),shopCredits:$('shop-credits'),
+ shopItems:$('shop-items'),shopBack:$('shop-back') as HTMLButtonElement
 };
 let phase:Phase='ready',elapsed=0,loot=0,hits=0,falls=0,contacts=0,attempts=0;
 let spawnedTotal=0,destroyedTotal=0,spawnWaves=0,maxLive=0;
@@ -44,6 +66,7 @@ let swipeChain=0,lastSwipeEnd=-100,pendingImpulse=0,pendingSideImpulse=0;
 let messageUntil=0;
 const WAVE_SEED=1719;
 const root=document.getElementById('game')!;
+if(infiniteMode){root.classList.add('infinite');ui.badge.hidden=false;}
 const FLICK_COOLDOWN=PLAYER_SWIPE_COOLDOWN;
 function message(text:string){
  ui.toast.textContent=text;ui.toast.classList.add('show');
@@ -57,6 +80,21 @@ catch(err){
  throw err;
 }
 const {app,camera,shape,device,viewport}=game;
+const toColor=(hex:string)=>{
+ const n=parseInt(hex.slice(1),16);
+ return new Color(((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255);
+};
+const themes=new Map<string,{
+ road:ReturnType<typeof material>;trim:ReturnType<typeof material>;
+ island:ReturnType<typeof material>;marker:ReturnType<typeof material>
+}>();
+function paletteFor(spec:LevelSpec){
+ const key=spec.biome,existing=themes.get(key);
+ if(existing)return existing;
+ const made={road:material(spec.road,.7),trim:material(spec.stripe,.75),
+  island:material(spec.island,.68),marker:material('#FFF3BC',.9)};
+ themes.set(key,made);return made;
+}
 (app.systems.rigidbody as {gravity:Vec3}).gravity.set(0,-12,0);
 const mats={
  road:material('#9A83D1',.7),roadStripe:material('#BEAFE4'),
@@ -104,6 +142,34 @@ band.addComponent('render',{type:'sphere',material:mats.band,castShadows:false})
 band.setLocalPosition(0,.29,0);band.setLocalScale(.85,.17,.85);
 player.addChild(band);
 const body=player.rigidbody!;
+const skinMaterials=new Map(SKINS.map(s=>[s.id,material(s.color,.94)]));
+function applySkin(){
+ const selected=SKINS.find(s=>s.id===save.equipped)!;
+ const visual=player.children[0] as Entity;
+ for(const i of visual.render!.meshInstances)i.material=skinMaterials.get(selected.id)!;
+ mats.band.diffuse=toColor(selected.band);mats.band.update();
+}
+function persist(){
+ try{localStorage.setItem(saveKey,JSON.stringify(save));}
+ catch{ /* still playable in disabled local storage */ }
+}
+function refreshBadge(){
+ ui.badge.textContent='LEVEL '+currentSpec.index+' · '+currentSpec.title;
+ if(infiniteMode)ui.status.textContent='LEVEL '+currentSpec.index+' · SWIPE UP';
+}
+function stageLevel(){
+ if(!infiniteMode)return;
+ if(levelScene){levelScene.dispose();disposedLevels++;}
+ currentSpec=levelSpec(save.level);
+ const p=paletteFor(currentSpec);
+ levelScene=buildClimbLevel(currentSpec,shape,p);stagedLevels++;
+ for(const v of (ramp.children[0] as Entity).render!.meshInstances)v.material=p.road;
+ for(const marker of ledges)
+  for(const m of (marker.children[0] as Entity).render!.meshInstances)m.material=p.trim;
+ camera.camera!.clearColor.copy(toColor(currentSpec.sky));
+ refreshBadge();
+}
+if(infiniteMode){stageLevel();applySkin();}
 // Assigning RigidBodyComponent.mass invokes PlayCanvas's REAL Bullet mass
 // setter (including inertia). Never resize the collider or ghost obstacles.
 function setCharge(level:number){
@@ -213,7 +279,7 @@ function streamSpawns(){
  // One pattern per wave, but each item has its OWN emission time.
  // Train = actual back-to-back falling objects, not a painted line.
  if(elapsed>=spawnNextAt&&pending.length<58){
-  const wave=makeWave(WAVE_SEED,spawnWaveIndex++);
+  const wave=makeWave(infiniteMode?currentSpec.waveSeed:WAVE_SEED,spawnWaveIndex++);
   patterns[wave.pattern]++;spawnWaves++;
   for(const item of wave.items)pending.push({item,at:elapsed+item.delay});
   // Lower the physical danger density but preserve visually rich mixed bursts.
@@ -250,6 +316,17 @@ function reapActors(playerS:number,p:Vec3){
 let lastImpact=-100;
 player.collision!.on('collisionstart',(evt:{other:Entity})=>{
  if(phase!=='running')return;
+ if(infiniteMode&&levelScene&&evt.other===levelScene.summit){
+  const p=player.getPosition();
+  const progress=slopePosition(p).progress;
+  summitContactEvents++;
+  lastSummitContactProgress=progress;
+  if(body.type==='dynamic'&&progress>=SLOPE_LENGTH-1.5&&
+    p.y>=levelScene.summitTop+PLAYER_RADIUS-.35&&
+    p.z<-23.4&&Math.abs(p.x)<=WALL_HALF_WIDTH)
+   summitContactPending=true;
+  return;
+ }
  if(evt.other.name.startsWith('falling-rock-')&&elapsed-lastImpact>.13){
   contacts++;hits++;lastImpact=elapsed;
   const actor=active.find(a=>a.entity===evt.other);
@@ -265,6 +342,13 @@ player.collision!.on('collisionstart',(evt:{other:Entity})=>{
 });
 function reset(){
  disposeActors();
+ if(infiniteMode)stageLevel();
+ if(body.type!=='dynamic')body.type='dynamic';
+ onSummit=false;summitContactPending=false;
+ summitContactEvents=0;lastSummitContactProgress=0;
+ ui.shop.hidden=true;ui.shopPanel.hidden=true;ui.summary.hidden=true;
+ ui.start.hidden=false;root.classList.remove('summit');
+ ui.start.textContent=infiniteMode?'CLIMB LEVEL '+save.level+' →':'CLIMB AGAIN →';
  phase='running';attempts++;elapsed=0;loot=0;hits=0;falls=0;contacts=0;
 
  spawnedTotal=0;destroyedTotal=0;spawnWaves=0;maxLive=0;
@@ -288,14 +372,73 @@ function reset(){
  body.teleport(...initial);
  body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
  ui.loot.textContent='0';ui.dialog.classList.add('hidden');
+ if(infiniteMode)applySkin();
  root.classList.add('playing');
  message('SWIPE UP TO CLIMB!');
 }
-ui.start.addEventListener('click',reset);
-ui.start.disabled=false;ui.start.textContent='START CLIMBING →';
+function enterSummit(){
+ if(!infiniteMode||phase!=='running'||!levelScene)return;
+ // A genuine Bullet contact with this level's physical summit is required.
+ if(!summitContactPending||summitContactEvents<1)return;
+ summitContactPending=false;
+ phase='summit';onSummit=true;summitEvents++;verifiedSummitArrivals++;
+ // Only after a real uphill approach, park on an actual Bullet plateau.
+ const pos=player.getPosition();
+ body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
+ body.type='kinematic';
+ body.teleport(clamp(pos.x,-3,3),levelScene.summitTop+PLAYER_RADIUS+.07,-30.5);
+ disposeActors();setCharge(0);peakChargeLevel=0;
+ pendingImpulse=0;pendingSideImpulse=0;
+ save=bankSummitLoot(save,loot);persist();
+ ui.summary.textContent='LEVEL '+save.level+' CLEARED · +'+loot+
+  ' LOOT · BANK '+save.wallet;
+ ui.title.innerHTML='SUMMIT <em>REACHED!</em>';
+ ui.description.textContent=currentSpec.title+
+  ' · '+elapsed.toFixed(1)+'s · '+falls+' falls. Loot buys ball skins only.';
+ ui.start.textContent='NEXT LEVEL →';ui.start.hidden=false;
+ ui.shop.hidden=false;ui.shopPanel.hidden=true;ui.summary.hidden=false;
+ ui.dialog.classList.remove('hidden');
+ root.classList.remove('playing');root.classList.add('summit');
+}
+function showShop(){
+ if(!infiniteMode||phase!=='summit')return;
+ ui.shopPanel.hidden=false;ui.start.hidden=true;ui.shop.hidden=true;
+ ui.shopCredits.textContent='BANK: '+save.wallet+' LOOT';
+ ui.shopItems.replaceChildren();
+ for(const skin of SKINS){
+  const owned=save.owned.includes(skin.id),button=document.createElement('button');
+  button.type='button';button.className='skin-item';
+  button.disabled=!owned&&save.wallet<skin.price;
+  const swatch=document.createElement('span');swatch.className='skin-swatch';
+  swatch.style.background=skin.color;
+  const name=document.createElement('span');name.textContent=skin.name;
+  const price=document.createElement('small');
+  price.textContent=save.equipped===skin.id?'EQUIPPED':
+   owned?'EQUIP':skin.price+' LOOT';
+  button.append(swatch,name,price);
+  button.addEventListener('click',()=>{
+   save=purchaseSkin(save,skin.id);applySkin();persist();showShop();
+  });
+  ui.shopItems.append(button);
+ }
+}
+ui.shop.addEventListener('click',showShop);
+ui.shopBack.addEventListener('click',()=>{
+ ui.shopPanel.hidden=true;ui.start.hidden=false;ui.shop.hidden=false;
+});
+ui.start.addEventListener('click',()=>{
+ if(infiniteMode&&phase==='summit'){
+  save=unlockNextLevel(save);persist();reset();
+ }else reset();
+});
+ui.start.disabled=false;ui.start.textContent=infiniteMode?
+ 'CLIMB LEVEL '+save.level+' →':'START CLIMBING →';
 ui.status.textContent='REAL 60° BULLET RAMP READY';
 ui.description.textContent='Every UP swipe rolls the ball a little farther. Swipe left/right to dodge. Watch slower falling furniture, roll beneath the legs and push aside lightweight debris. There is NO automatic ascent.';
 ui.title.innerHTML='ROLL <em>UPHILL.</em>';
+if(infiniteMode)ui.description.textContent='Climb to a REAL summit platform. '+
+ 'Bank falling loot, visit the cosmetic-only shop or start the next '+
+ 'seeded level. 1,000+ reproducible levels, no power upgrades.';
 function requestFlick(direction:'up'|'left'|'right'){
  if(phase!=='running'||elapsed-lastFlickTime<FLICK_COOLDOWN)return;
  const p=player.getPosition(),s=slopePosition(p);
@@ -333,7 +476,8 @@ window.addEventListener('pointerup',e=>{
 window.addEventListener('pointercancel',()=>{pointerStart=null;});
 window.addEventListener('blur',()=>{pointerStart=null;});
 window.addEventListener('keydown',e=>{
- if((e.code==='Space'||e.code==='Enter')&&phase!=='running'){e.preventDefault();reset();return;}
+ if((e.code==='Space'||e.code==='Enter')&&
+ (phase==='ready'||phase==='complete')){e.preventDefault();reset();return;}
  if(e.code==='ArrowUp'||e.code==='KeyW'){
   e.preventDefault();if(!e.repeat)requestFlick('up');
  }
@@ -402,9 +546,15 @@ app.on('update',(dt:number)=>{
   maxForwardSpeed=Math.max(maxForwardSpeed,forwardVelocity(body.linearVelocity));
   maxProgress=Math.max(maxProgress,frame.progress);
   checkpointS=nearestCheckpoint(maxProgress);
-  streamSpawns();
+  if(!infiniteMode||frame.progress<45)streamSpawns();
+  else pending.length=0;
   reapActors(frame.progress,p);
-  if(shouldRecover(p)){
+  // Tilted slope recovery is invalid on a horizontal summit surface.
+  const summitApproach=infiniteMode&&frame.progress>=46;
+  const offSummit=summitApproach&&(
+   Math.abs(p.x)>WALL_HALF_WIDTH+PLAYER_RADIUS+.55||
+   p.y<(levelScene?.summitTop??0)-8||p.z< -41);
+  if(shouldRecover(p)&&(!summitApproach||offSummit)){
    falls++;
    // Losing progress is meaningful: return to previous checkpoint,
    // not to the current peak or an invisible perpetual magnet.
@@ -415,7 +565,8 @@ app.on('update',(dt:number)=>{
    pendingImpulse=0;pendingSideImpulse=0;swipeChain=0;
    message('FELL — BACK DOWN!');
   }
-  if(frame.progress>=SLOPE_LENGTH){
+  if(infiniteMode&&summitContactPending)enterSummit();
+  if(!infiniteMode&&frame.progress>=SLOPE_LENGTH){
    phase='complete';ui.title.innerHTML='SUMMIT <em>REACHED!</em>';
    ui.description.textContent='Loot '+loot+' · Impacts '+hits+' · Falls '+falls+
     ' · Flicks '+forwardFlicks+' · Time '+elapsed.toFixed(1)+'s. Climb again?';
@@ -467,9 +618,36 @@ app.on('update',(dt:number)=>{
   ' · FALLS '+falls;
 });
 app.start();
-declare global{interface Window{__CLIMBER_TEST__?:{snapshot:()=>Record<string,unknown>}}}
-window.__CLIMBER_TEST__={snapshot:()=>({
+declare global{interface Window{__CLIMBER_TEST__?:{
+ snapshot:()=>Record<string,unknown>;approachSummit?:()=>void
+}}}
+window.__CLIMBER_TEST__={
+ approachSummit:testMode?()=>{
+  if(phase!=='running'||body.type!=='dynamic')return;
+  // Controlled REAL Bullet landing on the summit platform. We advance
+  // from ABOVE the separate horizontal collider and require collisionstart;
+  // never synthesize the callback or force the summit phase. This validates
+  // platform contact, NOT a naturally steered full uphill run.
+  if(!levelScene)return;
+  summitContactPending=false;
+  body.teleport(0,levelScene.summitTop+PLAYER_RADIUS+2.0,-30.5);
+  body.linearVelocity=new Vec3(0,-1.0,-.1);
+  body.angularVelocity=new Vec3();
+ }:undefined,
+ snapshot:()=>({
  phase,physicsLoaded:true,rigidbodyType:body.type,
+  infiniteMode,levelIndex:currentSpec.index,
+  biome:currentSpec.biome,levelTitle:currentSpec.title,
+  levelSeed:currentSpec.seed,waveSeed:currentSpec.waveSeed,
+  summitPlatformType:levelScene?.summit.rigidbody?.type??null,
+  summitPlatformTop:levelScene?.summitTop??null,
+  sceneEntities:levelScene?.sceneEntities??0,
+  levelPhysicalObstacles:levelScene?.physicalEntities??0,
+  stagedLevels,disposedLevels,summitEvents,onSummit,
+  summitContactEvents,summitContactPending,
+  lastSummitContactProgress,verifiedSummitArrivals,
+  wallet:save.wallet,ownedSkins:[...save.owned],equippedSkin:save.equipped,
+  shopVisible:!ui.shopPanel.hidden,levelLoot:loot,
  x:player.getPosition().x,y:player.getPosition().y,z:player.getPosition().z,
  progress:slopePosition(player.getPosition()).progress,
  normalDistance:slopePosition(player.getPosition()).normalDistance,

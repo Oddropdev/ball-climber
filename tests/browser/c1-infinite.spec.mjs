@@ -1,0 +1,116 @@
+import {test,expect} from '@playwright/test';
+const state=page=>page.evaluate(()=>window.__CLIMBER_TEST__?.snapshot());
+async function physicsSummit(page){
+ await page.evaluate(()=>window.__CLIMBER_TEST__?.approachSummit?.());
+ await expect.poll(async()=>(await state(page))?.phase,
+  {timeout:8500,intervals:[100,160,250]}).toBe('summit');
+}
+test('C1.0: real Level1 summit -> skin shop -> Level2/3 with clean Bullet teardown',async({page})=>{
+ test.setTimeout(80_000);
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/?mode=infinite&test=1');
+ await expect.poll(async()=>(await state(page))?.physicsLoaded,{timeout:25000}).toBe(true);
+ const first=await state(page);
+ expect(first.infiniteMode).toBe(true);
+ expect(first.levelIndex).toBe(1);
+ expect(first.biome).toBe('rocky');
+ expect(first.summitPlatformType).toBe('static');
+ expect(first.sceneEntities).toBeGreaterThan(8);
+ expect(first.levelPhysicalObstacles).toBeGreaterThan(2);
+ await page.locator('#start').click();
+ expect((await state(page)).rigidbodyType).toBe('dynamic');
+ await physicsSummit(page);
+ let snap=await state(page);
+ expect(snap.summitContactEvents).toBeGreaterThan(0);
+ expect(snap.verifiedSummitArrivals).toBe(1);
+ expect(snap.lastSummitContactProgress).toBeGreaterThan(46);
+ expect(snap.summitEvents).toBe(1);
+ expect(snap.onSummit).toBe(true);
+ expect(snap.rigidbodyType).toBe('kinematic');
+ expect(snap.stagedLevels).toBe(2); // initial and start level
+ await expect(page.locator('#shop-button')).toBeVisible();
+ await expect(page.locator('#start')).toContainText('NEXT LEVEL');
+ await page.screenshot({path:'test-results/c10-level1-real-summit.png'});
+ await page.locator('#shop-button').click();
+ expect((await state(page)).shopVisible).toBe(true);
+ await expect(page.locator('.skin-item')).toHaveCount(4);
+ await expect(page.locator('.skin-item').nth(1)).toBeDisabled();
+ await page.screenshot({path:'test-results/c10-skin-shop.png'});
+ await page.locator('#shop-back').click();
+ await page.locator('#start').click();
+ snap=await state(page);
+ expect(snap.phase).toBe('running');
+ expect(snap.levelIndex).toBe(2);
+ expect(snap.biome).toBe('stormwall');
+ expect(snap.waveSeed).not.toBe(first.waveSeed);
+ expect(snap.disposedLevels).toBeGreaterThanOrEqual(2);
+ expect(snap.sceneEntities).toBeGreaterThan(8);
+ expect(snap.summitPlatformType).toBe('static');
+ expect(snap.rigidbodyType).toBe('dynamic');
+ expect(await page.locator('#level-badge').innerText()).toContain('LEVEL 2');
+ await page.screenshot({path:'test-results/c10-level2-stormwall.png'});
+ await physicsSummit(page);
+ expect((await state(page)).verifiedSummitArrivals).toBe(2);
+ await expect(page.locator('#shop-button')).toBeVisible();
+ await page.locator('#start').click();
+ snap=await state(page);
+ expect(snap.levelIndex).toBe(3);
+ expect(snap.stagedLevels).toBeGreaterThanOrEqual(4);
+ expect(snap.disposedLevels).toBe(snap.stagedLevels-1);
+ expect(snap.rigidbodyType).toBe('dynamic');
+ expect(snap.summitPlatformType).toBe('static');
+ expect(snap.sceneEntities).toBeGreaterThan(8);
+ const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('oddrop-ball-climber-c1-v1')));
+ expect(saved.level).toBe(3);
+ await page.reload();
+ await expect.poll(async()=>(await state(page))?.physicsLoaded,{timeout:25000}).toBe(true);
+ expect((await state(page)).levelIndex).toBe(3);
+ expect((await state(page)).phase).toBe('ready');
+ expect(errors).toEqual([]);
+});
+test('C1.0: cosmetic shop only changes material/skin and durable wallet',async({page})=>{
+ test.setTimeout(60_000);
+ await page.goto('/?mode=infinite&test=1');
+ await page.evaluate(()=>{
+  localStorage.setItem('oddrop-ball-climber-c1-v1',JSON.stringify({
+   version:1,level:8,wallet:50,owned:['classic'],equipped:'classic'
+  }));
+ });
+ await page.reload();
+ await expect.poll(async()=>(await state(page))?.physicsLoaded,{timeout:25000}).toBe(true);
+ const start=await state(page);
+ expect(start.wallet).toBe(50);
+ expect(start.levelIndex).toBe(8);
+ await page.locator('#start').click();
+ await physicsSummit(page);
+ await page.locator('#shop-button').click();
+ const midnight=page.locator('.skin-item').filter({hasText:'Midnight'});
+ await midnight.click();
+ let s=await state(page);
+ expect(s.equippedSkin).toBe('midnight');
+ expect(s.wallet).toBe(10);
+ expect(s.ownedSkins).toContain('midnight');
+ expect(s.summitPlatformType).toBe('static');
+ await midnight.click();
+ expect((await state(page)).wallet).toBe(10);
+ await page.locator('#shop-back').click();
+ await page.locator('#start').click();
+ s=await state(page);
+ expect(s.levelIndex).toBe(9);
+ expect(s.equippedSkin).toBe('midnight');
+ expect(s.rigidbodyType).toBe('dynamic');
+ expect(s.playerMass).toBe(s.basePlayerMass);
+ await page.reload();
+ await expect.poll(async()=>(await state(page))?.physicsLoaded,{timeout:25000}).toBe(true);
+ expect((await state(page)).equippedSkin).toBe('midnight');
+});
+test('C1.0: default C0.7 mode is unchanged and has no summit/shop flows',async({page})=>{
+ await page.goto('/');
+ await expect.poll(async()=>(await state(page))?.physicsLoaded,{timeout:25000}).toBe(true);
+ const s=await state(page);
+ expect(s.infiniteMode).toBe(false);
+ expect(s.summitPlatformType).toBe(null);
+ expect(s.levelIndex).toBe(1);
+ expect(s.sceneEntities).toBe(0);
+ expect(await page.locator('#shop-button').isVisible()).toBe(false);
+});
