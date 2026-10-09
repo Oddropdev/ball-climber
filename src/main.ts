@@ -5,7 +5,9 @@ import {createPhysicsGame,material} from './Physics';
 import {makeFurniture,furnitureOpening} from './Furniture';
 import {PLAYER_SWIPE_IMPULSE,PLAYER_CHAIN_INCREMENT,PLAYER_MAX_FORWARD_SPEED,
  PLAYER_ANTISLIDE_FORCE,PLAYER_SWIPE_COOLDOWN,HAZARD_RELEASE_SPEED,
- HAZARD_MAX_AGE_SECONDS,hazardBrakingForce} from './Motion';
+ HAZARD_MAX_AGE_SECONDS,hazardBrakingForce,
+ BASE_PLAYER_MASS,MAX_CHARGE,MAX_PLAYER_MASS,
+ chargedBySwipe,chargeAfterIdle,massForCharge,scaleImpulseForMass} from './Motion';
 import {blocksCameraSegment} from './Visibility';
 import {SLOPE_DEGREES,SLOPE_LENGTH,SIN_SLOPE,COS_SLOPE,LEVEL_HEIGHT,
   WALL_HALF_WIDTH,PLAYER_RADIUS,SLAB_THICKNESS,UP,NORMAL,onSlope,
@@ -32,6 +34,9 @@ let lastOcclusionScan=-1e3;let hazardMotionTicks=0,hazardSampleSpeed=0;
 let totalRock=0,totalLoot=0,totalBox=0,totalSphere=0;
 let checkpointS=2,maxProgress=2,sideFlicks=0,forwardFlicks=0;
 let appliedSwipeCount=0,lastAppliedSwipeMagnitude=0;
+let chargeLevel=0,peakChargeLevel=0,lastWeightSwipeTime=-100;
+let maximumChargedMass=BASE_PLAYER_MASS,massUpdateCount=0;
+let speedCapActivations=0,chargedMediumImpacts=0;
 let lastFlickTime=-100,maxForwardSpeed=0,spawnNextAt=1,spawnWaveIndex=0;
 let swipeChain=0,lastSwipeEnd=-100,pendingImpulse=0,pendingSideImpulse=0;
 let messageUntil=0;
@@ -86,12 +91,25 @@ for(let i=0;i<18;i++){
 }
 const initial=onSlope(2);
 const player=shape('player-dynamic-Bullet-ball','sphere',initial,
- [PLAYER_RADIUS*2,PLAYER_RADIUS*2,PLAYER_RADIUS*2],mats.ball,'dynamic');
+ [PLAYER_RADIUS*2,PLAYER_RADIUS*2,PLAYER_RADIUS*2],mats.ball,'dynamic',0,BASE_PLAYER_MASS);
 const band=new Entity('player-ball-stripe');
 band.addComponent('render',{type:'sphere',material:mats.band,castShadows:false});
 band.setLocalPosition(0,.29,0);band.setLocalScale(.85,.17,.85);
 player.addChild(band);
 const body=player.rigidbody!;
+// Assigning RigidBodyComponent.mass invokes PlayCanvas's REAL Bullet mass
+// setter (including inertia). Never resize the collider or ghost obstacles.
+function setCharge(level:number){
+ const next=Math.max(0,Math.min(MAX_CHARGE,Math.floor(level)));
+ if(next===chargeLevel&&Math.abs(body.mass-massForCharge(next))<.00001)return;
+ chargeLevel=next;
+ body.mass=massForCharge(next);
+ massUpdateCount++;
+ maximumChargedMass=Math.max(maximumChargedMass,body.mass);
+ mats.band.emissive=new Color(.04+next*.065,.2+next*.1,.23+next*.075);
+ mats.band.emissiveIntensity=.2+next*.25;
+ mats.band.update();
+}
 const finish=shape('summit-finish','box',onSlope(SLOPE_LENGTH,.55),
  [WALL_HALF_WIDTH*2,.28,.85],mats.gold,false,SLOPE_DEGREES);
 // All the hazards originate at this giant ? box above the summit.
@@ -230,6 +248,9 @@ player.collision!.on('collisionstart',(evt:{other:Entity})=>{
   const actor=active.find(a=>a.entity===evt.other);
   if(actor&&actor.item.shape==='light'){
    lightImpacts++;message('SOFT BOUNCE!');
+  }else if(actor&&actor.item.mass>=3&&actor.item.mass<=16&&chargeLevel>=2){
+   chargedMediumImpacts++;
+   message('WEIGHT PUSH!');
   }else if(actor&&actor.item.mass>40){
    heavyHits++;message('HEAVY IMPACT!');
   }else message('ROCK IMPACT!');
@@ -250,6 +271,9 @@ function reset(){
  for(const k of Object.keys(patterns) as Pattern[])patterns[k]=0;
  sideFlicks=0;forwardFlicks=0;maxForwardSpeed=0;
  appliedSwipeCount=0;lastAppliedSwipeMagnitude=0;
+ setCharge(0);peakChargeLevel=0;lastWeightSwipeTime=-100;
+ maximumChargedMass=BASE_PLAYER_MASS;massUpdateCount=0;
+ speedCapActivations=0;chargedMediumImpacts=0;
  checkpointS=2;maxProgress=2;spawnNextAt=.2;spawnWaveIndex=0;
  swipeChain=0;lastSwipeEnd=-100;lastFlickTime=-100;
  pendingImpulse=0;pendingSideImpulse=0;
@@ -272,8 +296,11 @@ function requestFlick(direction:'up'|'left'|'right'){
   if(elapsed-lastSwipeEnd<.9)swipeChain=Math.min(4,swipeChain+1);
   else swipeChain=0;
   lastSwipeEnd=elapsed;forwardFlicks++;
+  peakChargeLevel=chargedBySwipe(chargeLevel,elapsed-lastWeightSwipeTime);
+  lastWeightSwipeTime=elapsed;
+  setCharge(peakChargeLevel);
   pendingImpulse+=PLAYER_SWIPE_IMPULSE+swipeChain*PLAYER_CHAIN_INCREMENT;
-  message(swipeChain?'CHAIN x'+(swipeChain+1):'ROLL!');
+  message(chargeLevel>1?'WEIGHT x'+(body.mass/BASE_PLAYER_MASS).toFixed(1):'ROLL!');
  }else{
   sideFlicks++;pendingSideImpulse+=(direction==='left'?-1:1)*3.65;
  }
@@ -311,10 +338,14 @@ app.on('update',(dt:number)=>{
  const frame=slopePosition(p);
  if(phase==='running'){
   elapsed+=tick;
+  // Charged mass fades when swipes stop. Real Bullet mass + inertia updates
+  // happen only on level change, never every frame.
+  setCharge(chargeAfterIdle(peakChargeLevel,elapsed-lastWeightSwipeTime));
   // Partial anti-slide support is weaker than slope gravity. It cannot
   // move the ball upward by itself. A swipe is always required to climb.
-  body.applyForce(new Vec3(0,PLAYER_ANTISLIDE_FORCE*SIN_SLOPE,
-    -PLAYER_ANTISLIDE_FORCE*COS_SLOPE));
+  const normalMassRatio=body.mass/BASE_PLAYER_MASS;
+  body.applyForce(new Vec3(0,PLAYER_ANTISLIDE_FORCE*normalMassRatio*SIN_SLOPE,
+    -PLAYER_ANTISLIDE_FORCE*normalMassRatio*COS_SLOPE));
   // Apply a SMALL mass-scaled counterforce and downhill drag ONLY to
   // dynamic avalanche objects. Never slow the world's physics clock.
   let downSpeedTotal=0;
@@ -333,14 +364,29 @@ app.on('update',(dt:number)=>{
    const speed=forwardVelocity(v);
    const bounded=Math.max(0,Math.min(next,(PLAYER_MAX_FORWARD_SPEED-speed)*1.4));
    if(bounded>0){
-    appliedSwipeCount++;lastAppliedSwipeMagnitude=bounded;
-    body.applyImpulse(new Vec3(0,bounded*SIN_SLOPE,-bounded*COS_SLOPE));
-    body.applyTorqueImpulse(new Vec3(Math.min(1.85,bounded*.19),0,0));
+    // Scale momentum impulse by real mass: charging adds PUSH POWER, not
+    // free speed and not an accidental inability to move a heavy ball.
+    const physicalImpulse=scaleImpulseForMass(bounded,body.mass);
+    appliedSwipeCount++;lastAppliedSwipeMagnitude=physicalImpulse;
+    body.applyImpulse(new Vec3(0,physicalImpulse*SIN_SLOPE,
+      -physicalImpulse*COS_SLOPE));
+    body.applyTorqueImpulse(new Vec3(Math.min(1.85,bounded*.19)*normalMassRatio,0,0));
    }
   }
   if(pendingSideImpulse){
-   body.applyImpulse(new Vec3(clamp(pendingSideImpulse,-7,7),0,0));
+   body.applyImpulse(new Vec3(clamp(pendingSideImpulse,-7,7)*normalMassRatio,0,0));
    pendingSideImpulse=0;
+  }
+  // Enforce the uphill ceiling even if a huge contact (or repeated quick
+  // swipes) adds momentum. Preserve sideways/downhill/normal components.
+  const velocityNow=body.linearVelocity;
+  const uphill=forwardVelocity(velocityNow);
+  if(uphill>PLAYER_MAX_FORWARD_SPEED){
+   const excess=uphill-PLAYER_MAX_FORWARD_SPEED;
+   body.linearVelocity=new Vec3(velocityNow.x,
+    velocityNow.y-excess*SIN_SLOPE,
+    velocityNow.z+excess*COS_SLOPE);
+   speedCapActivations++;
   }
   maxForwardSpeed=Math.max(maxForwardSpeed,forwardVelocity(body.linearVelocity));
   maxProgress=Math.max(maxProgress,frame.progress);
@@ -354,6 +400,8 @@ app.on('update',(dt:number)=>{
    const checkpoint=Math.max(2,checkpointS-12);
    body.teleport(...onSlope(checkpoint));
    body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
+   setCharge(0);peakChargeLevel=0;lastWeightSwipeTime=-100;
+   pendingImpulse=0;pendingSideImpulse=0;swipeChain=0;
    message('FELL — BACK DOWN!');
   }
   if(frame.progress>=SLOPE_LENGTH){
@@ -399,7 +447,8 @@ app.on('update',(dt:number)=>{
  ui.progress.style.width=(clamp(frame.progress/SLOPE_LENGTH,0,1)*100).toFixed(1)+'%';
  if(phase==='running')ui.status.textContent=
   Math.floor(clamp(frame.progress,0,SLOPE_LENGTH))+' / '+SLOPE_LENGTH+
-  ' m SLOPE · FLICKS '+forwardFlicks+' · FALLS '+falls;
+  ' m · MASS x'+(body.mass/BASE_PLAYER_MASS).toFixed(1)+
+  ' · FLICKS '+forwardFlicks+' · FALLS '+falls;
 });
 app.start();
 declare global{interface Window{__CLIMBER_TEST__?:{snapshot:()=>Record<string,unknown>}}}
@@ -441,6 +490,10 @@ window.__CLIMBER_TEST__={snapshot:()=>({
  forwardSpeed:forwardVelocity(body.linearVelocity),
  maxForwardSpeed,forwardFlicks,sideFlicks,swipeChain,
  appliedSwipeCount,lastAppliedSwipeMagnitude,
+ playerMass:body.mass,basePlayerMass:BASE_PLAYER_MASS,
+ maxPlayerMass:MAX_PLAYER_MASS,chargeLevel,peakChargeLevel,
+ massUpdateCount,maximumChargedMass,speedCapActivations,
+ chargedMediumImpacts,
  cameraY:camera.getPosition().y,cameraZ:camera.getPosition().z,
  ballVelocityY:body.linearVelocity.y
 })};
