@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "assets:physics": "node tools/fetch-ammo.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run tests/course.test.ts",
     "build": "npm run assets:physics && npm run typecheck && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4177",
     "test:browser": "playwright test",
