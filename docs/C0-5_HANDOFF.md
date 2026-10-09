@@ -6,8 +6,8 @@
 - Player has a real dynamic Ammo/Bullet body; permanent C0.4 baseline motor
   and hold-to-drive are removed. A mild weaker-than-gravity anti-slide force
   cushions loss but DOES NOT ascend unaided.
-- Single upward flick creates finite impulse + torque. Calibrated base 8.1,
-  chain +0.75, cap 14.5 (prior C0.4 base 11.6, chain +1.6, cap 23).
+- Single upward flick creates finite impulse + torque. Calibrated base 11.0,
+  chain +0.95, cap 17.0 (prior C0.4 base 11.6, chain +1.6, cap 23).
   Keep side flicks. Holding input must not provide upward velocity.
 - Obstacles receive mass-proportional 48% uphill gravity relief and linear
   drag 0.65 per downhill speed, starting at 2.8 vs old 4.3+.
