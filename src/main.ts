@@ -57,6 +57,7 @@ let rushActors=0,rushChairs=0;
 let barrelSpawned=0,beamSpawned=0,bouncerSpawned=0,complexSpawned=0;
 let magnetTicks=0,magnetEngagements=0,magnetActive=false;
 let arrivalCameraBlend=0;
+const focusProbe=new Vec3(0,1,0);
 let lastSummitContactProgress=0,verifiedSummitArrivals=0;
 const canvas=document.getElementById('application-canvas') as HTMLCanvasElement;
 const $=(id:string)=>document.getElementById(id)!;
@@ -717,6 +718,7 @@ app.on('update',(dt:number)=>{
   now.y+(cameraTarget.y-now.y)*ease,
   now.z+(cameraTarget.z-now.z)*ease);
  camera.lookAt(focusTarget);
+ focusProbe.copy(focusTarget);
  camera.camera!.fov=steepChaseMode?
   65-7*arrivalCameraBlend:closeChase.fov;
  // The WORLD is still physically solid. Only obstructing VISUAL meshes
@@ -876,7 +878,7 @@ window.__CLIMBER_TEST__={
  cameraDistance:camera.getPosition().distance(player.getPosition()),
  cameraSlopePitch:cameraPitchDegrees(
   [camera.getPosition().x,camera.getPosition().y,camera.getPosition().z],
-  [focusTarget.x,focusTarget.y,focusTarget.z]),
+  [focusProbe.x,focusProbe.y,focusProbe.z]),
  cameraY:camera.getPosition().y,cameraZ:camera.getPosition().z,
  ballVelocityX:body.linearVelocity.x,
  ballVelocityY:body.linearVelocity.y
