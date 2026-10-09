@@ -89,11 +89,12 @@ export function makeWave(seed:number,id:number):SpawnWave{
  const baseLane=(random()-.5)*5.8;
  const items:SpawnItem[]=[];
  for(let slot=0;slot<count;slot++){
-  const giant=pattern==='giant'&&slot===0 || pattern==='burst'&&random()<.07;
+  const requestedGiant=pattern==='giant'&&slot===0 || pattern==='burst'&&random()<.07;
   const kind:ObjectKind=pattern==='loot-row'||pattern==='loot-train'?'loot':
    pattern==='giant'&&slot===0?'rock':
    pattern==='mixed'||pattern==='burst'?slot%2?'loot':'rock':
    random()<.46?'loot':'rock';
+  const giant=kind==='rock'&&requestedGiant;
   const shape:ObjectShape=giant||random()<.51?'box':'sphere';
   const width=giant?2.5+random()*2.4:
    kind==='rock'?.72+random()*1.1:.52+random()*.65;
