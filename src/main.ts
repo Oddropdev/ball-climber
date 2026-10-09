@@ -7,8 +7,9 @@ import {PLAYER_SWIPE_IMPULSE,PLAYER_CHAIN_INCREMENT,PLAYER_MAX_FORWARD_SPEED,
  PLAYER_ANTISLIDE_FORCE,PLAYER_SWIPE_COOLDOWN,HAZARD_RELEASE_SPEED,
  HAZARD_MAX_AGE_SECONDS,hazardBrakingForce,
  BASE_PLAYER_MASS,MAX_CHARGE,MAX_PLAYER_MASS,
- chargedBySwipe,chargeAfterIdle,massForCharge,scaleImpulseForMass} from './Motion';
-import {blocksCameraSegment} from './Visibility';
+ chargedBySwipe,chargeAfterIdle,massForCharge,scaleImpulseForMass,
+ lateralControlFraction} from './Motion';
+import {visualOcclusionTier,type OcclusionTier} from './Visibility';
 import {SLOPE_DEGREES,SLOPE_LENGTH,SIN_SLOPE,COS_SLOPE,LEVEL_HEIGHT,
   WALL_HALF_WIDTH,PLAYER_RADIUS,SLAB_THICKNESS,UP,NORMAL,onSlope,
   slopePosition,nearestCheckpoint,shouldRecover,makeWave,clamp,
@@ -30,6 +31,7 @@ let heavyHits=0,giantsSpawned=0,maxRockMass=0;
 let furnitureSpawned=0,lightPropsSpawned=0,lightImpacts=0;
 let verifiedCompoundFurniture=0,minVerifiedGap=100;
 let ghostedActors=0,peakGhosted=0,cameraOcclusionChecks=0;
+let strongOcclusionEvents=0,lastSideControlFraction=1;
 let lastOcclusionScan=-1e3;let hazardMotionTicks=0,hazardSampleSpeed=0;
 let totalRock=0,totalLoot=0,totalBox=0,totalSphere=0;
 let checkpointS=2,maxProgress=2,sideFlicks=0,forwardFlicks=0;
@@ -41,6 +43,7 @@ let lastFlickTime=-100,maxForwardSpeed=0,spawnNextAt=1,spawnWaveIndex=0;
 let swipeChain=0,lastSwipeEnd=-100,pendingImpulse=0,pendingSideImpulse=0;
 let messageUntil=0;
 const WAVE_SEED=1719;
+const root=document.getElementById('game')!;
 const FLICK_COOLDOWN=PLAYER_SWIPE_COOLDOWN;
 function message(text:string){
  ui.toast.textContent=text;ui.toast.classList.add('show');
@@ -59,17 +62,21 @@ const mats={
  road:material('#9A83D1',.7),roadStripe:material('#BEAFE4'),
  edge:material('#FFD5B6'),rock:material('#EC8791'),
  rockDark:material('#E66B78'),crate:material('#D97EA5'),
- rectangle:material('#FFB681'),loot:material('#FFE06D',.94),
- lootBox:material('#70E6CF',.92),ball:material('#F9FAFE',.93),
+ rectangle:material('#DA686A'),loot:material('#FFE06D',.94),
+ lootBox:material('#FFD15C',.92),ball:material('#F9FAFE',.93),
  band:material('#43DCCF',.82),cloud:material('#FFFFFF'),
  island:material('#88D4CD'),gold:material('#FFF1A9'),
- furniture:material('#FFC68B',.73),chair:material('#99D7F1',.73),
- light:material('#D8FBE7',.78)
+ furniture:material('#E97485',.73),chair:material('#C95472',.73),
+ light:material('#6EE2D4',.78)
 };
 mats.loot.emissive=new Color(.65,.35,.03);mats.loot.emissiveIntensity=1.1;mats.loot.update();
-const ghostMat=material('#D7FAF5',.38);
-ghostMat.opacity=.19;ghostMat.blendType=BLEND_NORMAL;
+// Shared fade materials avoid per-object GPU material allocation.
+const ghostMat=material('#EB8995',.38);
+ghostMat.opacity=.15;ghostMat.blendType=BLEND_NORMAL;
 ghostMat.depthWrite=false;ghostMat.update();
+const ghostNearMat=material('#EB8995',.38);
+ghostNearMat.opacity=.045;ghostNearMat.blendType=BLEND_NORMAL;
+ghostNearMat.depthWrite=false;ghostNearMat.update();
 const TRACK_CENTER=onSlope(SLOPE_LENGTH/2,0);
 const ramp=shape('sixty-degree-static-Bullet-ramp','box',TRACK_CENTER,
  [WALL_HALF_WIDTH*2,SLAB_THICKNESS,SLOPE_LENGTH+5],mats.road,'static',SLOPE_DEGREES);
@@ -133,7 +140,7 @@ const chute=shape('mystery-summit-drop-port','cylinder',
  onSlope(SLOPE_LENGTH+2.7,1.1),[3.3,.34,3.3],mats.gold);
 type RenderSurface={instance:MeshInstance;material:Material};
 type DynamicActor={item:SpawnItem;entity:Entity;bornAt:number;
-  original:RenderSurface[];ghosted:boolean};
+  original:RenderSurface[];ghostTier:OcclusionTier};
 const collectRenders=(root:Entity):RenderSurface[]=>{
  const pieces:RenderSurface[]=[];
  const walk=(node:Entity)=>{
@@ -149,7 +156,7 @@ const pending:Queued[]=[];
 const patterns=Object.fromEntries(PATTERNS.map(p=>[p,0])) as Record<Pattern,number>;
 function removeActor(i:number){
  const actor=active[i]!;
- if(actor.ghosted)ghostedActors--;
+ if(actor.ghostTier>0)ghostedActors--;
  if(actor.item.kind==='rock')liveRocks--;else liveLoot--;
  actor.entity.destroy();active.splice(i,1);destroyedTotal++;
 }
@@ -181,7 +188,7 @@ function spawnActor(item:SpawnItem){
  rb.linearVelocity=new Vec3(outward,-initialSpeed*SIN_SLOPE,
   initialSpeed*COS_SLOPE);
  if(item.shape==='box')rb.angularVelocity=new Vec3(.3,item.slot%2?1.4:-1.4,.55);
- active.push({item,entity:e,bornAt:elapsed,original:collectRenders(e),ghosted:false});
+ active.push({item,entity:e,bornAt:elapsed,original:collectRenders(e),ghostTier:0});
  if(item.shape==='table'||item.shape==='chair'){
   furnitureSpawned++;
   const opening=furnitureOpening(item);
@@ -266,6 +273,7 @@ function reset(){
  furnitureSpawned=0;lightPropsSpawned=0;lightImpacts=0;
  verifiedCompoundFurniture=0;minVerifiedGap=100;
  ghostedActors=0;peakGhosted=0;cameraOcclusionChecks=0;
+ strongOcclusionEvents=0;lastSideControlFraction=1;
  lastOcclusionScan=-1e3;hazardMotionTicks=0;hazardSampleSpeed=0;
  totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
  for(const k of Object.keys(patterns) as Pattern[])patterns[k]=0;
@@ -280,6 +288,7 @@ function reset(){
  body.teleport(...initial);
  body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
  ui.loot.textContent='0';ui.dialog.classList.add('hidden');
+ root.classList.add('playing');
  message('SWIPE UP TO CLIMB!');
 }
 ui.start.addEventListener('click',reset);
@@ -302,7 +311,9 @@ function requestFlick(direction:'up'|'left'|'right'){
   pendingImpulse+=PLAYER_SWIPE_IMPULSE+swipeChain*PLAYER_CHAIN_INCREMENT;
   message(chargeLevel>1?'WEIGHT x'+(body.mass/BASE_PLAYER_MASS).toFixed(1):'ROLL!');
  }else{
-  sideFlicks++;pendingSideImpulse+=(direction==='left'?-1:1)*3.65;
+  sideFlicks++;
+  lastSideControlFraction=lateralControlFraction(chargeLevel);
+  pendingSideImpulse+=(direction==='left'?-1:1)*3.65*lastSideControlFraction;
  }
 }
 let pointerStart:{x:number;y:number;id:number}|null=null;
@@ -409,6 +420,7 @@ app.on('update',(dt:number)=>{
    ui.description.textContent='Loot '+loot+' · Impacts '+hits+' · Falls '+falls+
     ' · Flicks '+forwardFlicks+' · Time '+elapsed.toFixed(1)+'s. Climb again?';
    ui.start.textContent='CLIMB AGAIN →';ui.dialog.classList.remove('hidden');
+    root.classList.remove('playing');
   }
   if(elapsed>messageUntil)ui.toast.classList.remove('show');
  }
@@ -436,19 +448,23 @@ app.on('update',(dt:number)=>{
   for(const a of active){
    const c=a.entity.getPosition();
    const radius=Math.max(...a.item.size)*.7+PLAYER_RADIUS+.3;
-   const blocking=blocksCameraSegment(fromVec,toVec,[c.x,c.y,c.z],radius);
-   if(blocking===a.ghosted)continue;
-   a.ghosted=blocking;ghostedActors+=blocking?1:-1;
+   const nextTier=visualOcclusionTier(fromVec,toVec,[c.x,c.y,c.z],
+     radius,a.item.kind==='loot');
+   if(nextTier===a.ghostTier)continue;
+   if(a.ghostTier===0&&nextTier>0)ghostedActors++;
+   else if(a.ghostTier>0&&nextTier===0)ghostedActors--;
+   a.ghostTier=nextTier;
+   if(nextTier===2)strongOcclusionEvents++;
    for(const visual of a.original)visual.instance.material=
-     blocking?ghostMat:visual.material;
+     nextTier===2?ghostNearMat:nextTier===1?ghostMat:visual.material;
   }
   peakGhosted=Math.max(peakGhosted,ghostedActors);
  }
  ui.progress.style.width=(clamp(frame.progress/SLOPE_LENGTH,0,1)*100).toFixed(1)+'%';
  if(phase==='running')ui.status.textContent=
   Math.floor(clamp(frame.progress,0,SLOPE_LENGTH))+' / '+SLOPE_LENGTH+
-  ' m · MASS x'+(body.mass/BASE_PLAYER_MASS).toFixed(1)+
-  ' · FLICKS '+forwardFlicks+' · FALLS '+falls;
+  'm · MASS ×'+(body.mass/BASE_PLAYER_MASS).toFixed(1)+
+  ' · FALLS '+falls;
 });
 app.start();
 declare global{interface Window{__CLIMBER_TEST__?:{snapshot:()=>Record<string,unknown>}}}
@@ -463,7 +479,9 @@ window.__CLIMBER_TEST__={snapshot:()=>({
  liveRocks,liveLoot,peakRocks,peakLoot,maxRocks:MAX_ROCKS,maxLoot:MAX_LOOT,
  queued:pending.length,spawnSkipped,giantsSpawned,maxRockMass,heavyHits,
  furnitureSpawned,verifiedCompoundFurniture,minVerifiedGap,
- lightPropsSpawned,lightImpacts,ghostedActors,
+ lightPropsSpawned,lightImpacts,ghostedActors,strongOcclusionEvents,
+  lastSideControlFraction,lightweightLateralControl:lateralControlFraction(0),
+  heavyweightLateralControl:lateralControlFraction(MAX_CHARGE),
  peakGhosted,cameraOcclusionChecks,hazardMotionTicks,hazardSampleSpeed,
  swipeOnly:true,playerMotorEnabled:false,
  hazardReleaseSpeed:HAZARD_RELEASE_SPEED,
