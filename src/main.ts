@@ -8,7 +8,8 @@ import {summitMagnetForce} from './SummitMagnet';
 import {buildRotorField,pairedRotorClearance,type RotorField} from './Rotors';
 import {rushPack} from './RushPack';
 import {buildBaseCamp,baseSpawn,shouldPurgeBaseHazard,
- needsBaseSafetyCatch,baseCameraTransition,HAZARD_KILL_PROGRESS,BASE_DECK_TOP,
+ needsBaseSafetyCatch,isInsideBaseCamp,baseCameraTransition,
+ HAZARD_KILL_PROGRESS,BASE_DECK_TOP,
  BASE_DECK_WIDTH,type BaseCamp} from './BaseCamp';
 import {INFINITE_SLOPE_LENGTH,summitCenterZ,steepSlopeCamera,
  cameraPitchDegrees} from './InfiniteGeometry';
@@ -546,7 +547,8 @@ if(infiniteMode)ui.description.textContent='Climb to a REAL summit platform. '+
 function requestFlick(direction:'up'|'left'|'right'){
  if(phase!=='running'||elapsed-lastFlickTime<FLICK_COOLDOWN)return;
  const p=player.getPosition(),s=slopePosition(p);
- if(s.normalDistance>SLAB_THICKNESS/2+PLAYER_RADIUS+1.8)return;
+ if(s.normalDistance>SLAB_THICKNESS/2+PLAYER_RADIUS+1.8&&
+  !(infiniteMode&&isInsideBaseCamp(p)))return;
  lastFlickTime=elapsed;
  if(direction==='up'){
   if(elapsed-lastSwipeEnd<.9)swipeChain=Math.min(4,swipeChain+1);
