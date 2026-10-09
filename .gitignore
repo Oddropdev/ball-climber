@@ -1,0 +1,9 @@
+node_modules/
+dist/
+playwright-report/
+test-results/
+*.log
+.env.local
+public/ammo/
+public/licensed/
+public/private/

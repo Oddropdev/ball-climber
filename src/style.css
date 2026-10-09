@@ -1,0 +1,35 @@
+*{box-sizing:border-box}html,body{height:100%;margin:0;overflow:hidden;
+ background:#b9d7f8;font-family:ui-rounded,system-ui,-apple-system,Arial,sans-serif;color:#263451}
+#game{position:fixed;inset:0;overflow:hidden;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hud{position:absolute;inset:0;display:flex;flex-direction:column;pointer-events:none;
+ padding:calc(16px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom))}
+header{display:flex;justify-content:space-between;gap:10px}
+header small{display:block;font-size:10px;font-weight:800;letter-spacing:.12em;color:#416285}
+header strong{font-size:clamp(23px,5vw,32px);letter-spacing:-.045em}
+.score{background:#fffdf4e6;border:2px solid white;border-radius:16px;padding:9px 13px;
+ color:#ac6f0a;font-size:26px;font-weight:900}.score small{display:inline}
+.progress{height:10px;margin-top:15px;border-radius:12px;background:#263c706b;overflow:hidden}
+.progress>div{height:100%;width:0;background:linear-gradient(90deg,#74e9bd,#ffd780)}
+#status{margin:10px auto 0;background:#fffefaed;padding:6px 12px;border-radius:14px;
+ font-weight:800;font-size:11px;letter-spacing:.04em}
+#toast{margin:20px auto 0;font-size:24px;font-weight:900;color:#fff8be;
+ text-shadow:0 3px 7px #3544737c;opacity:0;transition:opacity .2s}
+#toast.show{opacity:1}
+#dialog{pointer-events:auto;position:absolute;top:52%;left:50%;transform:translate(-50%,-50%);
+ width:min(90vw,390px);text-align:center;background:#ffffffed;border:3px solid white;
+ border-radius:28px;box-shadow:0 24px 80px #1d305a50;padding:25px 20px}
+#dialog.hidden{display:none}
+.eyebrow{font-size:10px;font-weight:900;letter-spacing:.11em;color:#8867ac}
+#dialog h1{font-size:clamp(28px,7vw,42px);letter-spacing:-.07em;line-height:1.05}
+#dialog h1 em{font-style:normal;color:#ef8b91}
+#dialog p{font-size:15px;line-height:1.5;color:#5c6380}
+#start{border:0;background:#876fca;color:white;border-radius:16px;
+ box-shadow:0 5px 0 #6351a2;font-size:17px;font-weight:900;
+ min-height:52px;width:100%;cursor:pointer}
+#start:disabled{opacity:.5;cursor:progress}
+#dialog small{display:block;margin-top:18px;color:#77819d;font-size:11px}
+.hint{margin:auto auto 0;text-align:center;color:white;
+ font-size:11px;font-weight:900;letter-spacing:.12em;text-shadow:0 2px 4px #2c4563}
+@media(max-height:550px){#dialog{padding:12px;top:54%}#dialog h1{font-size:25px;margin:7px}
+ #dialog p{font-size:12px}#start{min-height:40px}.hint{display:none}.progress{margin-top:5px}}

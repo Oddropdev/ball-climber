@@ -1,0 +1,43 @@
+name: C0 Ball Climber Physics Foundation
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'tools/**'
+      - 'index.html'
+      - 'package.json'
+      - 'tsconfig.json'
+      - 'vite.config.ts'
+      - 'playwright.config.mjs'
+      - '.github/workflows/c0-foundation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  physics-climb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Unit, static typecheck and self-hosted Ammo build
+        run: |
+          npm run test
+          npm run build
+      - name: Real Chromium physics climbing smoke
+        run: npm run test:browser
+      - name: Reviewable built game and screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c0-ball-climber-owner-preview
+          path: |
+            dist/
+            test-results/
+            Start_Ball_Climber.cmd
+            tools/serve-preview.mjs
+          if-no-files-found: warn
