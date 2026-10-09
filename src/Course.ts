@@ -1,7 +1,7 @@
-// C0.2: pure physics geometry + deterministic, potentially unbounded wave contract.
-// Distance s is measured UP the 60° slab, not vertical world Y.
+// C0.3: geometry + reproducible, limitless avalanche layouts.
+// Runtime caps are PER KIND, never a preallocated fixed-length obstacle list.
 export const SLOPE_DEGREES=60;
-export const SLOPE_RADIANS=SLOPE_DEGREES*Math.PI/180;
+export const SLOPE_RADIANS=Math.PI/3;
 export const SIN_SLOPE=Math.sin(SLOPE_RADIANS);
 export const COS_SLOPE=Math.cos(SLOPE_RADIANS);
 export const SLOPE_LENGTH=48;
@@ -12,18 +12,22 @@ export const SLAB_THICKNESS=.85;
 export const BASE_Y=.6;
 export const BASE_Z=0;
 export const CHECKPOINT_GAP=12;
-export const ACTIVE_CAP=48;
+export const MAX_ROCKS=50;
+export const MAX_LOOT=50;
+export const ACTIVE_CAP=MAX_ROCKS+MAX_LOOT;
+export const EMITTER_S=SLOPE_LENGTH+2.5;
 export type V3=[number,number,number];
 export const UP:V3=[0,SIN_SLOPE,-COS_SLOPE];
 export const NORMAL:V3=[0,COS_SLOPE,SIN_SLOPE];
+export const clamp=(x:number,lo:number,hi:number)=>Math.min(hi,Math.max(lo,x));
 export function onSlope(distance:number,normalOffset=SLAB_THICKNESS/2+PLAYER_RADIUS+.025,x=0):V3{
  return [x,BASE_Y+distance*SIN_SLOPE+normalOffset*COS_SLOPE,
-   BASE_Z-distance*COS_SLOPE+normalOffset*SIN_SLOPE];
+  BASE_Z-distance*COS_SLOPE+normalOffset*SIN_SLOPE];
 }
 export function slopePosition(pos:{x:number;y:number;z:number}){
  const dy=pos.y-BASE_Y,dz=pos.z-BASE_Z;
  return {progress:dy*SIN_SLOPE-dz*COS_SLOPE,
-   normalDistance:dy*COS_SLOPE+dz*SIN_SLOPE};
+  normalDistance:dy*COS_SLOPE+dz*SIN_SLOPE};
 }
 export function nearestCheckpoint(progress:number){
  return Math.max(2,2+Math.floor(Math.max(0,progress-2)/CHECKPOINT_GAP)*CHECKPOINT_GAP);
@@ -32,10 +36,9 @@ export function shouldRecover(pos:{x:number;y:number;z:number}){
  if(![pos.x,pos.y,pos.z].every(Number.isFinite))return true;
  const {progress,normalDistance}=slopePosition(pos);
  return pos.x<-WALL_HALF_WIDTH-PLAYER_RADIUS-.35 ||
-   pos.x>WALL_HALF_WIDTH+PLAYER_RADIUS+.35 ||
-   progress<-.7 || normalDistance<-.5 || normalDistance>6.5;
+  pos.x>WALL_HALF_WIDTH+PLAYER_RADIUS+.35 ||
+  progress<-.7 || normalDistance<-.5 || normalDistance>6.5;
 }
-export function clamp(x:number,lo:number,hi:number){return Math.min(hi,Math.max(lo,x));}
 export function makeRng(seed:number){
  let s=seed>>>0;
  return ()=>{s+=0x6d2b79f5;let x=s;
@@ -46,48 +49,81 @@ export function makeRng(seed:number){
 }
 export type ObjectKind='rock'|'loot';
 export type ObjectShape='sphere'|'box';
-export type Pattern='scatter'|'row'|'train'|'diagonal'|'loot-row'|'mixed';
+export type Pattern='scatter'|'row'|'train'|'diagonal'|'loot-row'|'mixed'|
+ 'cluster'|'giant'|'spiral'|'loot-train'|'wall'|'burst';
 export type SpawnItem={
  wave:number;slot:number;kind:ObjectKind;shape:ObjectShape;
- lane:number;distanceOffset:number;size:V3;
+ lane:number;delay:number;size:V3;mass:number;giant:boolean;
 };
 export type SpawnWave={id:number;pattern:Pattern;items:SpawnItem[]};
-// Stateless waves, deterministic for any nonnegative id. The caller can create
-// an unlimited sequence but retains only a bounded number of live Bullet bodies.
-export function makeWave(runSeed:number,id:number):SpawnWave{
+export const PATTERNS:Pattern[]=[
+ 'scatter','row','train','diagonal','loot-row','mixed',
+ 'cluster','giant','spiral','loot-train','wall','burst'
+];
+function patternFor(seed:number,id:number):Pattern{
+ // Shuffled 12-wave bags, so randomness is strong WITHOUT starving trains/giants.
+ const bag=Math.floor(id/PATTERNS.length),rng=makeRng((seed^Math.imul(bag+1,0x45d9f3b))>>>0);
+ const indices=PATTERNS.map((_,i)=>i);
+ for(let i=indices.length-1;i>0;i--){
+  const j=Math.floor(rng()*(i+1));[indices[i],indices[j]]=[indices[j]!,indices[i]!];
+ }
+ return PATTERNS[indices[id%PATTERNS.length]!]!;
+}
+export function massFor(kind:ObjectKind,size:V3,giant=false){
+ // Mass is physical, scaled by volume. Giants are genuinely heavier and
+ // impart more momentum on impact, but capped for Bullet stability.
+ const volume=size[0]*size[1]*size[2];
+ return kind==='loot'?clamp(.25+volume*.55,.35,3.5):
+  clamp(2+volume*(giant?2.2:1.3),2.2,260);
+}
+export function makeWave(seed:number,id:number):SpawnWave{
  if(!Number.isSafeInteger(id)||id<0)throw Error('wave index must be nonnegative');
- const rand=makeRng((runSeed^Math.imul(id+1,0x9e3779b9))>>>0);
- const patterns:Pattern[]=['scatter','row','train','diagonal','loot-row','mixed'];
- const pattern=patterns[id%patterns.length]!;
- const count=pattern==='scatter'?2+Math.floor(rand()*2):
-   pattern==='train'?3+Math.floor(rand()*2):
-   pattern==='loot-row'?4:pattern==='mixed'?4:3;
- const baseLane=(rand()-.5)*5.7;
+ const pattern=patternFor(seed,id);
+ const random=makeRng((seed^Math.imul(id+1,0x9e3779b9))>>>0);
+ const count=pattern==='scatter'?3+Math.floor(random()*6):
+  pattern==='train'||pattern==='loot-train'?5+Math.floor(random()*6):
+  pattern==='row'||pattern==='loot-row'?7+Math.floor(random()*4):
+  pattern==='wall'?9+Math.floor(random()*4):
+  pattern==='giant'?3+Math.floor(random()*4):
+  5+Math.floor(random()*6);
+ const baseLane=(random()-.5)*5.8;
  const items:SpawnItem[]=[];
  for(let slot=0;slot<count;slot++){
-  const kind:ObjectKind=pattern==='loot-row'?'loot':
-    pattern==='mixed'?(slot%2===0?'rock':'loot'):
-    pattern==='train'?(slot===count-1?'loot':'rock'):
-    rand()<.34?'loot':'rock';
-  const shape:ObjectShape=rand()<.43?'box':'sphere';
-  const w=kind==='loot'?.48:.7+rand()*.46;
-  const h=shape==='box'?(kind==='loot'?.46:.6+rand()*.75):w;
-  const depth=shape==='box'?w*(.5+rand()*1.3):w;
-  const lane=pattern==='row'||pattern==='loot-row'?
-      -3.6+(7.2*(slot+.5)/count):
-    pattern==='diagonal'?
-      -3.1+slot*(6.2/(count-1)):
-    pattern==='train'?
-      baseLane+(rand()-.5)*.28:
-      clamp(baseLane+(rand()-.5)*4.6,-3.7,3.7);
-  const distanceOffset=pattern==='row'||pattern==='loot-row'?
-    (rand()-.5)*.28:
-    pattern==='train'?slot*1.8:
-    pattern==='diagonal'?slot*1.2:
-    slot*.9;
+  const giant=pattern==='giant'&&slot===0 || pattern==='burst'&&random()<.07;
+  const kind:ObjectKind=pattern==='loot-row'||pattern==='loot-train'?'loot':
+   pattern==='giant'&&slot===0?'rock':
+   pattern==='mixed'||pattern==='burst'?slot%2?'loot':'rock':
+   random()<.46?'loot':'rock';
+  const shape:ObjectShape=giant||random()<.51?'box':'sphere';
+  const width=giant?2.5+random()*2.4:
+   kind==='rock'?.72+random()*1.1:.52+random()*.65;
+  const height=giant?2.2+random()*2.5:
+   shape==='box'?width*(.55+random()*1.5):width;
+  const depth=giant?2+random()*2.4:
+   shape==='box'?width*(.4+random()*1.9):width;
+  const lane=pattern==='row'||pattern==='loot-row'||pattern==='wall'?
+   -4.35+8.7*(slot+.5)/count:
+   pattern==='diagonal'||pattern==='spiral'?
+    -3.8+7.6*(slot/(count-1)):
+   pattern==='train'||pattern==='loot-train'||pattern==='cluster'?
+    baseLane+(random()-.5)*(pattern==='cluster'?1.8:.28):
+   giant?clamp((random()-.5)*4,-2,2):
+    clamp(baseLane+(random()-.5)*8,-4.25,4.25);
+  // True queues use staggered EMISSION TIMES from the SAME summit box.
+  // Rows fall simultaneously in parallel lanes; trains fall sequentially.
+  const delay=pattern==='train'||pattern==='loot-train'?
+   slot*(.20+random()*.13):
+   pattern==='diagonal'||pattern==='spiral'?slot*.14:
+   pattern==='cluster'?Math.floor(slot/2)*.12:
+   pattern==='wall'?Math.floor(slot/5)*.13:
+   pattern==='burst'?random()*.5:random()*.07;
+  const size:V3=[
+   Math.round(width*100)/100,Math.round(height*100)/100,
+   Math.round(depth*100)/100
+  ];
   items.push({wave:id,slot,kind,shape,
-   lane:Math.round(lane*1000)/1000,distanceOffset,
-   size:[w,h,depth]});
+   lane:Math.round(lane*1000)/1000,delay:Math.round(delay*1000)/1000,
+   size,mass:massFor(kind,size,giant),giant});
  }
  return {id,pattern,items};
 }
