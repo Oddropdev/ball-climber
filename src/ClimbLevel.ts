@@ -42,6 +42,33 @@ export function buildClimbLevel(spec:LevelSpec,shape:Shape,
    [direction*(spec.summitWidth/2-.55),summitTop+.75,-36.8],
    [.25,1.5,.25],palette.trim,false));
  }
+ // A visible capture target. These are NOT hidden collision barriers:
+ // the existing horizontal platform remains the only landing collider.
+ add(shape('level-'+spec.index+'-magnet-aura','cylinder',
+  [0,summitTop+.04,-28.3],[4.8,.06,4.8],palette.trim,false));
+ add(shape('level-'+spec.index+'-magnet-ring','cylinder',
+  [0,summitTop+.085,-28.3],[3.75,.055,3.75],palette.marker,false));
+ add(shape('level-'+spec.index+'-magnet-core','cylinder',
+  [0,summitTop+.12,-28.3],[2.5,.055,2.5],palette.island,false));
+ // Each biome has a distinctive uphill silhouette, not merely a tint.
+ const decorRng=makeRng(spec.decorSeed^0xc7a95f);
+ for(let i=0;i<9;i++){
+  const distance=7+i*4.5;
+  const x=(i%2===0?-1:1)*(7.9+decorRng()*1.9);
+  const [px,py,pz]=onSlope(distance,-.55,x);
+  const style=spec.biome;
+  const type=style==='rocky'?'sphere':
+   style==='stormwall'?'cylinder':
+   style==='scrapfall'?'box':i%3===0?'cylinder':'sphere';
+  const size:[number,number,number]=style==='rocky'?
+   [2.1+decorRng(),2.6+decorRng(),2.0]:
+   style==='stormwall'?[.45,4.4+decorRng()*3,.45]:
+   style==='scrapfall'?[1.55+decorRng(),3.2+decorRng()*1.6,1.4]:
+   [2.1+decorRng(),2.1+decorRng(),2.1+decorRng()];
+  add(shape('level-'+spec.index+'-'+style+'-landmark-'+i,
+   type,[px,py+size[1]/2,pz],size,
+   i%3===0?palette.trim:palette.island,false));
+ }
  // Physically solid side boulders are generated afresh per seed; the middle
  // lane stays open so 1,000 deterministic tracks cannot become blocked walls.
  const rng=makeRng(spec.decorSeed);
