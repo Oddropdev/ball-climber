@@ -1,5 +1,5 @@
 *{box-sizing:border-box}html,body{height:100%;margin:0;overflow:hidden;
- background:#b9d7f8;font-family:ui-rounded,system-ui,-apple-system,Arial,sans-serif;color:#263451}
+ background:#b7d8f5;font-family:ui-rounded,system-ui,-apple-system,Arial,sans-serif;color:#263451}
 #game{position:fixed;inset:0;overflow:hidden;touch-action:none}
 canvas{display:block;width:100%;height:100%;touch-action:none}
 #hud{position:absolute;inset:0;display:flex;flex-direction:column;pointer-events:none;
