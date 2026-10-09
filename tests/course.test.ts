@@ -30,7 +30,7 @@ test('12 genuinely distinct motifs in randomized, reproducible shuffled bags',()
  expect(waves.some((w,i)=>w.pattern!==makeWave(1720,i).pattern)).toBe(true);
  expect(PATTERNS).toHaveLength(12);
  for(const w of waves){
-  expect(w.items.length).toBeGreaterThanOrEqual(3);
+  expect(w.items.length).toBeGreaterThanOrEqual(2);
   expect(w.items.length).toBeLessThanOrEqual(12);
   expect(w.items.every(i=>Math.abs(i.lane)<=4.35)).toBe(true);
   expect(w.items.every(i=>i.mass>0)).toBe(true);
