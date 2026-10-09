@@ -162,3 +162,57 @@ test('C0.7: a heavy charged ball trades away lateral steering, not forward physi
  expect(lateralControlFraction(1)).toBeGreaterThan(lateralControlFraction(3));
  expect(lateralControlFraction(4)).toBeGreaterThan(.5);
 });
+
+import {warmStartItems,refineInfiniteItem,smoothSummitBlend,
+ summitCameraOffsets,MYSTERY_BOX_HEIGHT,MYSTERY_BOX_SIZE} from '../src/ClimbPacing';
+test('C1.1 first-frame hazard stream is real, deterministic and mixed',()=>{
+ const items=warmStartItems(1719);
+ expect(items).toHaveLength(8);
+ expect(warmStartItems(1719)).toEqual(items);
+ expect(warmStartItems(1720)).not.toEqual(items);
+ expect(items.every(p=>p.progress>=12&&p.progress<=44)).toBe(true);
+ expect(items.every(p=>p.item.mass>0)).toBe(true);
+ expect(items.filter(p=>p.item.kind==='rock').length).toBe(5);
+ expect(items.filter(p=>p.item.kind==='loot').length).toBe(3);
+ expect(items.some(p=>p.item.shape==='barrel')).toBe(true);
+ expect(items.some(p=>p.item.shape==='beam')).toBe(true);
+ expect(items.some(p=>p.item.shape==='bouncer')).toBe(true);
+ expect(items.some(p=>p.item.shape==='table')).toBe(true);
+ expect(items.some(p=>p.item.shape==='chair')).toBe(true);
+ expect(items.every(p=>Math.abs(p.item.lane)<4)).toBe(true);
+});
+test('C1.1 each of the first 1000 levels uses narrow tall real furniture and distinct hazards',()=>{
+ const shapes=new Set<string>();
+ for(let i=1;i<=1000;i++){
+  const seed=makeWave(i*719,0);
+  for(const item of seed.items){
+   const p=refineInfiniteItem(item,i*719);
+   expect(refineInfiniteItem(item,i*719)).toEqual(p);
+   expect(p.mass).toBeGreaterThan(0);
+   shapes.add(p.shape);
+   if(p.shape==='table'||p.shape==='chair'){
+    expect(p.size[0]).toBeLessThan(3);
+    expect(p.size[1]).toBeGreaterThan(3.6);
+    expect(furnitureOpening(p).height).toBeGreaterThan(1.16);
+   }
+  }
+ }
+ // Furniture and cylinder/plank/spring bodies in addition to legacy debris.
+ for(const shape of ['barrel','beam','bouncer','table','chair'])
+  expect(shapes.has(shape)).toBe(true);
+});
+test('C1.1 summit camera smoothly levels with distance and raised mystery source',()=>{
+ expect(smoothSummitBlend(30,false)).toBe(0);
+ expect(smoothSummitBlend(44,false)).toBeCloseTo(.5);
+ expect(smoothSummitBlend(48,false)).toBe(1);
+ expect(smoothSummitBlend(1,true)).toBe(1);
+ for(let i=0;i<=100;i++){
+  const t=i/100;
+  const p=summitCameraOffsets(t);
+  expect(p.focusHeight).toBeLessThanOrEqual(4.34);
+  expect(p.focusHeight).toBeGreaterThanOrEqual(.8);
+  expect(p.behind).toBeGreaterThanOrEqual(11.8);
+ }
+ expect(MYSTERY_BOX_HEIGHT).toBeGreaterThan(12);
+ expect(MYSTERY_BOX_SIZE).toBeGreaterThan(7);
+});
