@@ -3,6 +3,7 @@
 import {Entity,Vec3,Color,Texture,PIXELFORMAT_RGBA8,BLEND_NORMAL,type MeshInstance,type Material} from 'playcanvas';
 import {createPhysicsGame,material} from './Physics';
 import {makeFurniture,furnitureOpening} from './Furniture';
+import {blocksCameraSegment} from './Visibility';
 import {SLOPE_DEGREES,SLOPE_LENGTH,SIN_SLOPE,COS_SLOPE,LEVEL_HEIGHT,
   WALL_HALF_WIDTH,PLAYER_RADIUS,SLAB_THICKNESS,UP,NORMAL,onSlope,
   slopePosition,nearestCheckpoint,shouldRecover,makeWave,clamp,
@@ -138,7 +139,7 @@ function spawnActor(item:SpawnItem){
  const departureX=item.lane*.13;
  const clearance=SLAB_THICKNESS/2+Math.max(...item.size)*.65+1.1;
  const position=onSlope(EMITTER_S,clearance,departureX);
- const mat=item.kind==='loot'?
+ const mat=item.shape==='light'?mats.light:item.kind==='loot'?
   (item.shape==='sphere'?mats.loot:mats.lootBox):
   (item.shape==='sphere'?(item.slot%2?mats.rockDark:mats.rock):
    item.giant?mats.rockDark:item.size[1]>item.size[0]?mats.rectangle:mats.crate);
@@ -225,6 +226,7 @@ player.collision!.on('collisionstart',(evt:{other:Entity})=>{
 function reset(){
  disposeActors();
  phase='running';attempts++;elapsed=0;loot=0;hits=0;falls=0;contacts=0;
+ pointerHeld=false;keyHeld=false;
  spawnedTotal=0;destroyedTotal=0;spawnWaves=0;maxLive=0;
  liveRocks=0;liveLoot=0;peakRocks=0;peakLoot=0;spawnSkipped=0;
  heavyHits=0;giantsSpawned=0;maxRockMass=0;
@@ -361,16 +363,12 @@ app.on('update',(dt:number)=>{
  if(elapsed-lastOcclusionScan>.095){
   lastOcclusionScan=elapsed;cameraOcclusionChecks++;
   const from=camera.getPosition(),to=player.getPosition();
-  const sx=to.x-from.x,sy=to.y-from.y,sz=to.z-from.z;
-  const denom=sx*sx+sy*sy+sz*sz;
+  const fromVec:[number,number,number]=[from.x,from.y,from.z];
+  const toVec:[number,number,number]=[to.x,to.y,to.z];
   for(const a of active){
    const c=a.entity.getPosition();
-   const f=clamp(((c.x-from.x)*sx+(c.y-from.y)*sy+
-     (c.z-from.z)*sz)/Math.max(denom,1),0,1);
-   const cx=from.x+sx*f,cy=from.y+sy*f,cz=from.z+sz*f;
-   const d2=(c.x-cx)**2+(c.y-cy)**2+(c.z-cz)**2;
    const radius=Math.max(...a.item.size)*.7+PLAYER_RADIUS+.3;
-   const blocking=f>.08&&f<.98&&d2<radius*radius;
+   const blocking=blocksCameraSegment(fromVec,toVec,[c.x,c.y,c.z],radius);
    if(blocking===a.ghosted)continue;
    a.ghosted=blocking;ghostedActors+=blocking?1:-1;
    for(const visual of a.original)visual.instance.material=
@@ -400,6 +398,9 @@ window.__CLIMBER_TEST__={snapshot:()=>({
  holding: pointerHeld||keyHeld,
  softRockTarget:HAZARD_SOFT_TARGET,softLootTarget:LOOT_SOFT_TARGET,
  openFurnitureCount:active.filter(a=>a.item.shape==='table'||a.item.shape==='chair').length,
+ furnitureCompoundBodies:active.filter(a=>
+  (a.item.shape==='table'||a.item.shape==='chair')&&
+  a.entity.collision?.type==='compound'&&a.entity.rigidbody?.type==='dynamic').length,
  minFurnitureOpening:active.filter(a=>a.item.shape==='table'||a.item.shape==='chair')
    .reduce((min,a)=>Math.min(min,furnitureOpening(a.item).width),100),
  emitterProgress:EMITTER_S,mysteryVisible:mysteryBox.enabled,
