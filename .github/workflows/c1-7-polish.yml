@@ -1,0 +1,73 @@
+name: C1.7 Visibility, Anti-Plow & Shape Pack
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'docs/C1-7_HANDOFF.md'
+      - '.github/workflows/c1-7-polish.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: c1-7-mobile-preview
+  cancel-in-progress: true
+jobs:
+  climb-pacing:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'c1-7-visibility-finish-rotor-shapes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install chromium
+      - name: C0-C1 physics/unit regression, 1000-seed obstacle grammar, typecheck and build
+        run: |
+          npm run test
+          npx vitest run tests/c1-infinite.test.ts tests/c12-magnet.test.ts tests/c13-feel.test.ts tests/c14-rotors.test.ts tests/c15-longer-chase.test.ts tests/c16-base-pairs.test.ts tests/c17-polish.test.ts
+          npm run build
+      - name: C1.7 first-frame ball, actual summit contact, anti-plow, novelty shapes and rotor grammar gate
+        run: npx playwright test tests/browser/c17-polish.spec.mjs tests/browser/c16-base-pairs.spec.mjs tests/browser/c15-longer-chase.spec.mjs tests/browser/c14-rotors.spec.mjs tests/browser/c13-feel.spec.mjs tests/browser/c12-magnet.spec.mjs
+      - name: Original C0-C1 browser suite plus physical summit magnet and obstacle profiles
+        run: npm run test:browser
+      - name: No paid source assets or secrets in the public build
+        run: |
+          test -s dist/index.html
+          test -f dist/ammo/ammo.wasm.wasm
+          if find dist -type f | grep -Ei '\.(zip|env|pem|key|p12|ps1|map)$|licensed|private'; then
+            echo 'Unsafe asset in public build'
+            exit 1
+          fi
+          echo C1_7_PUBLIC_CONTENT_PASS
+      - name: Publish isolated passing Android browser preview
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Built from ${GITHUB_SHA}" > dist/BUILD_ORIGIN.txt
+          cd dist
+          git init -b main
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'C1.7 Android playtest public compiled files only'
+          git remote add origin 'https://x-access-token:'"${GH_TOKEN}"'@github.com/Oddropdev/ball-climber.git'
+          target=refs/heads/c1-7-mobile-static-preview
+          expected=$(git ls-remote origin "$target" | cut -f1)
+          if [ -n "$expected" ]; then
+            git push "--force-with-lease=$target:$expected" origin "HEAD:$target"
+          else
+            git push origin "HEAD:$target"
+          fi
+      - name: Screenshots, logs and preview for owner
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c1-7-polish-mobile-playtest
+          path: |
+            dist/
+            test-results/
+            docs/C1-7_HANDOFF.md
+          if-no-files-found: warn
