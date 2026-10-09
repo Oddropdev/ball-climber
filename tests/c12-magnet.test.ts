@@ -22,6 +22,9 @@ test('C1.2: magnetic capture physically pulls toward center and damps launch',()
  const landing=summitMagnetForce(49,{x:2,y:43.5,z:-25},
   {x:0,y:0,z:-1},42,.58,1.4)!;
  expect(landing[2]).toBeLessThan(0); // pull across once above the lip
+ const overPad=summitMagnetForce(52,{x:0,y:45,z:-30.5},
+  {x:0,y:-1,z:0},42,.58,1.4)!;
+ expect(overPad[1]).toBe(0); // gravity must allow physical deck contact
  const faster=summitMagnetForce(46,p,{...v,y:16},42,.58,1.4)!;
  expect(faster[1]).toBeLessThan(m[1]);
  const double=summitMagnetForce(46,p,v,42,.58,2.8)!;
