@@ -7,6 +7,9 @@ import {makeFallingObstacle,isComplexShape} from './ObstacleShapes';
 import {summitMagnetForce} from './SummitMagnet';
 import {buildRotorField,pairedRotorClearance,type RotorField} from './Rotors';
 import {rushPack} from './RushPack';
+import {noveltyStartItems} from './NoveltyPack';
+import {climbMassForCharge,shouldBlockFinalSwipe,
+ isRunawaySummitLaunch} from './C17Safety';
 import {buildBaseCamp,baseSpawn,shouldPurgeBaseHazard,
  needsBaseSafetyCatch,isInsideBaseCamp,baseCameraTransition,
  HAZARD_KILL_PROGRESS,BASE_DECK_TOP,
@@ -55,6 +58,8 @@ let levelScene:ClimbLevel|null=null;
 let rotorField:RotorField|null=null;
 let baseCamp:BaseCamp|null=null;
 let hazardPurged=0,baseSafetyCatches=0;
+let noveltyActors=0,noveltyShapes:string[]=[];
+let summitSwipeBlocked=0,summitOvershootRecoveries=0;
 let stagedLevels=0,disposedLevels=0,summitEvents=0,onSummit=false;
 let summitContactEvents=0,summitContactPending=false;
 let prewarmedActors=0,prewarmedRocks=0,prewarmedLoot=0;
@@ -209,9 +214,10 @@ if(infiniteMode){stageLevel();applySkin();}
 // setter (including inertia). Never resize the collider or ghost obstacles.
 function setCharge(level:number){
  const next=Math.max(0,Math.min(MAX_CHARGE,Math.floor(level)));
- if(next===chargeLevel&&Math.abs(body.mass-massForCharge(next))<.00001)return;
+ const target=infiniteMode?climbMassForCharge(next):massForCharge(next);
+ if(next===chargeLevel&&Math.abs(body.mass-target)<.00001)return;
  chargeLevel=next;
- body.mass=massForCharge(next);
+ body.mass=target;
  massUpdateCount++;
  maximumChargedMass=Math.max(maximumChargedMass,body.mass);
  mats.band.emissive=new Color(.04+next*.065,.2+next*.1,.23+next*.075);
@@ -248,6 +254,8 @@ const chute=shape('mystery-summit-drop-port','cylinder',
  infiniteMode?onSlope(courseLength+7,6):
   onSlope(SLOPE_LENGTH+2.7,1.1),
  infiniteMode?[4.5,.34,4.5]:[3.3,.34,3.3],mats.gold);
+// C1.7: the unwanted floating disk is decorative, not an emitter collider.
+if(infiniteMode)chute.enabled=false;
 type RenderSurface={instance:MeshInstance;material:Material};
 type DynamicActor={item:SpawnItem;entity:Entity;bornAt:number;
   original:RenderSurface[];ghostTier:OcclusionTier};
@@ -438,6 +446,8 @@ function reset(){
  prewarmedActors=0;prewarmedRocks=0;prewarmedLoot=0;
  gauntletActors=0;gauntletChairs=0;gauntletLoot=0;
  rushActors=0;rushChairs=0;
+ noveltyActors=0;noveltyShapes=[];
+ summitSwipeBlocked=0;summitOvershootRecoveries=0;
  hazardPurged=0;baseSafetyCatches=0;
  barrelSpawned=0;beamSpawned=0;bouncerSpawned=0;complexSpawned=0;
  magnetTicks=0;magnetEngagements=0;magnetActive=false;
@@ -453,6 +463,13 @@ function reset(){
  pendingImpulse=0;pendingSideImpulse=0;
  body.teleport(...initial);
  body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
+ // First rendered frame on the pad must already frame the physical ball.
+ if(infiniteMode&&steepChaseMode){
+  const rest=baseCameraTransition({x:initial[0],y:initial[1],z:initial[2]});
+  camera.setPosition(...rest.camera);
+  camera.lookAt(new Vec3(...rest.focus));
+  focusProbe.set(...rest.focus);
+ }
  if(infiniteMode){
   // Eight pre-positioned dynamic objects simulate an avalanche already
   // moving when the player begins, so fast upward swipes encounter hazards.
@@ -473,6 +490,10 @@ function reset(){
   for(const pre of rushPack(currentSpec.waveSeed,currentSpec.biome)){
    spawnActor(pre.item,pre.progress);rushActors++;
    if(pre.item.shape==='chair')rushChairs++;
+  }
+  for(const pre of noveltyStartItems(currentSpec.waveSeed)){
+   spawnActor(pre.item,pre.progress);noveltyActors++;
+   noveltyShapes.push(pre.item.shape);
   }
  }
  ui.loot.textContent='0';ui.dialog.classList.add('hidden');
@@ -551,6 +572,11 @@ function requestFlick(direction:'up'|'left'|'right'){
   !(infiniteMode&&isInsideBaseCamp(p)))return;
  lastFlickTime=elapsed;
  if(direction==='up'){
+  if(infiniteMode&&shouldBlockFinalSwipe(s.progress,courseLength,phase)){
+   summitSwipeBlocked++;
+   pendingImpulse=0;
+   return;
+  }
   if(elapsed-lastSwipeEnd<.9)swipeChain=Math.min(4,swipeChain+1);
   else swipeChain=0;
   lastSwipeEnd=elapsed;forwardFlicks++;
@@ -658,6 +684,17 @@ app.on('update',(dt:number)=>{
     magnetActive=true;
    }else magnetActive=false;
   }
+  // If a boosted player overshoots, return the same dynamic body above
+  // the real collision deck; only an actual Bullet contact wins the level.
+  if(infiniteMode&&levelScene&&
+   isRunawaySummitLaunch(frame.progress,courseLength,p.y,levelScene.summitTop)){
+   summitOvershootRecoveries++;
+   body.teleport(clamp(p.x,-3,3),levelScene.summitTop+PLAYER_RADIUS+1.15,
+    summitCenterZ(courseLength)+2.2);
+   body.linearVelocity=new Vec3(0,-1.5,0);
+   body.angularVelocity=new Vec3();
+   pendingImpulse=0;pendingSideImpulse=0;
+  }
   // Enforce the uphill ceiling even if a huge contact (or repeated quick
   // swipes) adds momentum. Preserve sideways/downhill/normal components.
   const velocityNow=body.linearVelocity;
@@ -733,6 +770,9 @@ app.on('update',(dt:number)=>{
    for(let i=0;i<3;i++)
     pose.camera[i]=rest.camera[i]!*(1-rest.slopeBlend)+
      pose.camera[i]!*rest.slopeBlend;
+   for(let i=0;i<3;i++)
+    pose.target[i]=rest.focus[i]!*(1-rest.slopeBlend)+
+      pose.target[i]!*rest.slopeBlend;
   }
   const towardSlope=1-arrivalCameraBlend;
   cameraTarget.lerp(cameraTarget,new Vec3(...pose.camera),towardSlope);
@@ -867,6 +907,7 @@ window.__CLIMBER_TEST__={
   stagedLevels,disposedLevels,summitEvents,onSummit,
   prewarmedActors,prewarmedRocks,prewarmedLoot,
   gauntletActors,gauntletChairs,gauntletLoot,rushActors,rushChairs,
+  noveltyActors,noveltyShapes,summitSwipeBlocked,summitOvershootRecoveries,
   rotorCount:rotorField?.count??0,
   rotorKinds:rotorField?.specs.map(p=>p.kind)??[],
   rotorPairs:rotorField?.specs.map(p=>({lane:p.lane??0,
@@ -940,6 +981,7 @@ window.__CLIMBER_TEST__={
  appliedSwipeCount,lastAppliedSwipeMagnitude,
  playerMass:body.mass,basePlayerMass:BASE_PLAYER_MASS,
  maxPlayerMass:MAX_PLAYER_MASS,chargeLevel,peakChargeLevel,
+ infiniteMaximumCollisionMass:climbMassForCharge(4),
  massUpdateCount,maximumChargedMass,speedCapActivations,
  chargedMediumImpacts,
  cameraLowMode:lowCameraMode,cameraCloseMode:closeCameraMode,
