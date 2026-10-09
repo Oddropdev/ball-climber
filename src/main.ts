@@ -599,8 +599,20 @@ app.on('update',(dt:number)=>{
   ' · FALLS '+falls;
 });
 app.start();
-declare global{interface Window{__CLIMBER_TEST__?:{snapshot:()=>Record<string,unknown>}}}
-window.__CLIMBER_TEST__={snapshot:()=>({
+declare global{interface Window{__CLIMBER_TEST__?:{
+ snapshot:()=>Record<string,unknown>;approachSummit?:()=>void
+}}}
+window.__CLIMBER_TEST__={
+ approachSummit:testMode?()=>{
+  if(phase!=='running'||body.type!=='dynamic')return;
+  // Test-only accelerated physics starting point. Does NOT call enterSummit
+  // or set phase: PlayCanvas/Bullet still advances uphill to summit detection.
+  const p=onSlope(SLOPE_LENGTH-.75);
+  body.teleport(...p);
+  body.linearVelocity=new Vec3(0,9.8*SIN_SLOPE,-9.8*COS_SLOPE);
+  body.angularVelocity=new Vec3();
+ }:undefined,
+ snapshot:()=>({
  phase,physicsLoaded:true,rigidbodyType:body.type,
   infiniteMode,levelIndex:currentSpec.index,
   biome:currentSpec.biome,levelTitle:currentSpec.title,
