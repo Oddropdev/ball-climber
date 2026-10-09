@@ -3,12 +3,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#b9d7f8">
-<title>Ball Climber — C0.6 Heavy Swipe</title>
+<title>Ball Climber — C0.7 Readability</title>
 </head><body>
 <main id="game">
   <canvas id="application-canvas" aria-label="Ball Climber real physics game"></canvas>
   <div id="hud">
-    <header><div><small>ODDROP / C0.6 HEAVY SWIPE</small><strong>BALL CLIMBER</strong></div>
+    <header><div><small>ODDROP / C0.7 READABILITY</small><strong>BALL CLIMBER</strong></div>
       <div class="score"><span id="loot">0</span><small> LOOT</small></div></header>
     <div class="progress"><div id="progress"></div></div>
     <div id="status">Preparing real physics…</div>
@@ -16,11 +16,11 @@
     <section id="dialog">
       <div class="eyebrow">60° PHYSICS SLOPE</div>
       <h1 id="title">CLIMB. <em>DODGE.</em> COLLECT.</h1>
-      <p id="description">Climb only by swiping UP. Repeated swipes temporarily make the ball HEAVIER to push medium obstacles away. Speed stays limited. Dodge giant furniture and collect loot.</p>
+      <p id="description">Climb only by swiping UP. Repeated swipes make the ball HEAVIER to push obstacles, but heavy balls dodge more slowly. Gold is loot, coral is danger, teal is lightweight debris. Dodge giant furniture and collect loot.</p>
       <button id="start" type="button" disabled>LOADING…</button>
       <small>Swipe ↑ to roll and gain weight · ← → dodge · R restart</small>
     </section>
-    <div class="hint">↑ SWIPE TO CHARGE MASS · ← → DODGE</div>
+    <div class="hint">GOLD = LOOT · CORAL = DANGER · TEAL = LIGHT</div>
   </div>
 </main>
 <script type="module" src="/src/main.ts"></script>

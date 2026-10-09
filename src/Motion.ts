@@ -55,3 +55,13 @@ export function scaleImpulseForMass(impulseAtBaseMass:number,mass:number){
 export function cappedForwardSpeed(speed:number,limit=PLAYER_MAX_FORWARD_SPEED){
  return Math.min(speed,limit);
 }
+
+// C0.7: mass is a genuine collision tradeoff. Original C0.6 uphill
+// propulsion/impulse scaling remains unchanged, but a charged heavy sphere
+// cannot dodge sideways with the same acceleration as its lightweight form.
+// 100% at base mass -> 58% at maximum charge, clamped and deterministic.
+export function lateralControlFraction(chargeLevel:number){
+ const level=Math.max(0,Math.min(MAX_CHARGE,Number.isFinite(chargeLevel)?
+  Math.floor(chargeLevel):0));
+ return 1-.105*level;
+}

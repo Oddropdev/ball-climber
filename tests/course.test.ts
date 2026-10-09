@@ -139,3 +139,26 @@ test('C0.6: charge expires without swipes and never survives loss of streak',()=
  expect(chargeAfterIdle(4,CHARGE_DECAY_DELAY+CHARGE_DECAY_STEP+.01)).toBe(2);
  expect(chargeAfterIdle(4,CHARGE_DECAY_DELAY+CHARGE_DECAY_STEP*4)).toBe(0);
 });
+
+
+import {visualOcclusionTier} from '../src/Visibility';
+import {lateralControlFraction} from '../src/Motion';
+test('C0.7: a giant or close camera blocker fades harder but loot never fades',()=>{
+ const eye:[number,number,number]=[0,0,10],ball:[number,number,number]=[0,0,0];
+ expect(visualOcclusionTier(eye,ball,[0,0,5],1.2,false)).toBe(1);
+ expect(visualOcclusionTier(eye,ball,[0,0,5],3.3,false)).toBe(2);
+ expect(visualOcclusionTier(eye,ball,[0,0,8],1.2,false)).toBe(2);
+ expect(visualOcclusionTier(eye,ball,[0,0,5],3.3,true)).toBe(0);
+ expect(visualOcclusionTier(eye,ball,[7,0,5],1.2,false)).toBe(0);
+ expect(visualOcclusionTier(eye,ball,[0,0,-5],1.2,false)).toBe(0);
+});
+test('C0.7: a heavy charged ball trades away lateral steering, not forward physics',()=>{
+ expect(lateralControlFraction(0)).toBe(1);
+ expect(lateralControlFraction(1)).toBeCloseTo(.895);
+ expect(lateralControlFraction(MAX_CHARGE)).toBeCloseTo(.58);
+ expect(lateralControlFraction(99)).toBeCloseTo(.58);
+ expect(lateralControlFraction(NaN)).toBe(1);
+ expect(lateralControlFraction(-50)).toBe(1);
+ expect(lateralControlFraction(1)).toBeGreaterThan(lateralControlFraction(3));
+ expect(lateralControlFraction(4)).toBeGreaterThan(.5);
+});
