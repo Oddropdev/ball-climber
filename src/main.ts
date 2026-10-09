@@ -1,8 +1,11 @@
-// C0.2 — genuine 60° Bullet slope. No animation-driven climbing.
-// One upward swipe = one finite roll+forward impulse. Left/right = one lateral impulse.
+// C0.5 — real 60° Bullet slope. Player movement ONLY from discrete swipes;
+// falling physics bodies receive drag independently of the ball.
 import {Entity,Vec3,Color,Texture,PIXELFORMAT_RGBA8,BLEND_NORMAL,type MeshInstance,type Material} from 'playcanvas';
 import {createPhysicsGame,material} from './Physics';
 import {makeFurniture,furnitureOpening} from './Furniture';
+import {PLAYER_SWIPE_IMPULSE,PLAYER_CHAIN_INCREMENT,PLAYER_MAX_FORWARD_SPEED,
+ PLAYER_ANTISLIDE_FORCE,PLAYER_SWIPE_COOLDOWN,HAZARD_RELEASE_SPEED,
+ HAZARD_MAX_AGE_SECONDS,hazardBrakingForce} from './Motion';
 import {blocksCameraSegment} from './Visibility';
 import {SLOPE_DEGREES,SLOPE_LENGTH,SIN_SLOPE,COS_SLOPE,LEVEL_HEIGHT,
   WALL_HALF_WIDTH,PLAYER_RADIUS,SLAB_THICKNESS,UP,NORMAL,onSlope,
@@ -25,14 +28,15 @@ let heavyHits=0,giantsSpawned=0,maxRockMass=0;
 let furnitureSpawned=0,lightPropsSpawned=0,lightImpacts=0;
 let verifiedCompoundFurniture=0,minVerifiedGap=100;
 let ghostedActors=0,peakGhosted=0,cameraOcclusionChecks=0;
-let lastOcclusionScan=-1e3;let continuousSeconds=0,baseDriveFrames=0;
+let lastOcclusionScan=-1e3;let hazardMotionTicks=0,hazardSampleSpeed=0;
 let totalRock=0,totalLoot=0,totalBox=0,totalSphere=0;
 let checkpointS=2,maxProgress=2,sideFlicks=0,forwardFlicks=0;
+let appliedSwipeCount=0,lastAppliedSwipeMagnitude=0;
 let lastFlickTime=-100,maxForwardSpeed=0,spawnNextAt=1,spawnWaveIndex=0;
 let swipeChain=0,lastSwipeEnd=-100,pendingImpulse=0,pendingSideImpulse=0;
 let messageUntil=0;
 const WAVE_SEED=1719;
-const FLICK_COOLDOWN=.12;
+const FLICK_COOLDOWN=PLAYER_SWIPE_COOLDOWN;
 function message(text:string){
  ui.toast.textContent=text;ui.toast.classList.add('show');
  messageUntil=elapsed+1;
@@ -155,7 +159,7 @@ function spawnActor(item:SpawnItem){
   rb.restitution=.6;rb.linearDamping=.025;rb.angularDamping=.06;
  }
  const outward=(item.lane-departureX)*.92;
- const initialSpeed=4.3+(item.slot%4)*.4;
+ const initialSpeed=HAZARD_RELEASE_SPEED+(item.slot%4)*.22;
  rb.linearVelocity=new Vec3(outward,-initialSpeed*SIN_SLOPE,
   initialSpeed*COS_SLOPE);
  if(item.shape==='box')rb.angularVelocity=new Vec3(.3,item.slot%2?1.4:-1.4,.55);
@@ -215,7 +219,7 @@ function reapActors(playerS:number,p:Vec3){
   // Entity.destroy() releases the real Bullet body, not just the visual.
   if(loc.progress<Math.max(-4,playerS-18)||loc.progress< -6||
    loc.progress>EMITTER_S+10||loc.normalDistance< -9||
-   pos.y< -12||elapsed-actor.bornAt>13)removeActor(i);
+   pos.y< -12||elapsed-actor.bornAt>HAZARD_MAX_AGE_SECONDS)removeActor(i);
  }
 }
 let lastImpact=-100;
@@ -234,29 +238,30 @@ player.collision!.on('collisionstart',(evt:{other:Entity})=>{
 function reset(){
  disposeActors();
  phase='running';attempts++;elapsed=0;loot=0;hits=0;falls=0;contacts=0;
- pointerHeld=false;keyHeld=false;
+
  spawnedTotal=0;destroyedTotal=0;spawnWaves=0;maxLive=0;
  liveRocks=0;liveLoot=0;peakRocks=0;peakLoot=0;spawnSkipped=0;
  heavyHits=0;giantsSpawned=0;maxRockMass=0;
  furnitureSpawned=0;lightPropsSpawned=0;lightImpacts=0;
  verifiedCompoundFurniture=0;minVerifiedGap=100;
  ghostedActors=0;peakGhosted=0;cameraOcclusionChecks=0;
- lastOcclusionScan=-1e3;continuousSeconds=0;baseDriveFrames=0;
+ lastOcclusionScan=-1e3;hazardMotionTicks=0;hazardSampleSpeed=0;
  totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
  for(const k of Object.keys(patterns) as Pattern[])patterns[k]=0;
  sideFlicks=0;forwardFlicks=0;maxForwardSpeed=0;
+ appliedSwipeCount=0;lastAppliedSwipeMagnitude=0;
  checkpointS=2;maxProgress=2;spawnNextAt=.2;spawnWaveIndex=0;
  swipeChain=0;lastSwipeEnd=-100;lastFlickTime=-100;
  pendingImpulse=0;pendingSideImpulse=0;
  body.teleport(...initial);
  body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
  ui.loot.textContent='0';ui.dialog.classList.add('hidden');
- message('ROLL UPHILL · SWIPE FOR BOOST!');
+ message('SWIPE UP TO CLIMB!');
 }
 ui.start.addEventListener('click',reset);
 ui.start.disabled=false;ui.start.textContent='START CLIMBING →';
 ui.status.textContent='REAL 60° BULLET RAMP READY';
-ui.description.textContent='The ball keeps rolling uphill. Hold to drive faster, swipe UP for a burst and swipe sideways to dodge. Run between the legs of huge falling furniture, collect loot and shove aside feather-light props!';
+ui.description.textContent='Every UP swipe rolls the ball a little farther. Swipe left/right to dodge. Watch slower falling furniture, roll beneath the legs and push aside lightweight debris. There is NO automatic ascent.';
 ui.title.innerHTML='ROLL <em>UPHILL.</em>';
 function requestFlick(direction:'up'|'left'|'right'){
  if(phase!=='running'||elapsed-lastFlickTime<FLICK_COOLDOWN)return;
@@ -267,40 +272,38 @@ function requestFlick(direction:'up'|'left'|'right'){
   if(elapsed-lastSwipeEnd<.9)swipeChain=Math.min(4,swipeChain+1);
   else swipeChain=0;
   lastSwipeEnd=elapsed;forwardFlicks++;
-  pendingImpulse+=11.6+swipeChain*1.6;
+  pendingImpulse+=PLAYER_SWIPE_IMPULSE+swipeChain*PLAYER_CHAIN_INCREMENT;
   message(swipeChain?'CHAIN x'+(swipeChain+1):'ROLL!');
  }else{
   sideFlicks++;pendingSideImpulse+=(direction==='left'?-1:1)*3.65;
  }
 }
 let pointerStart:{x:number;y:number;id:number}|null=null;
-let pointerHeld=false,keyHeld=false;
+
 window.addEventListener('pointerdown',e=>{
  if(phase!=='running'||(e.target instanceof Element&&e.target.closest('#dialog')))return;
  pointerStart={x:e.clientX,y:e.clientY,id:e.pointerId};
- pointerHeld=true;
+
 });
 window.addEventListener('pointerup',e=>{
- const first=pointerStart;pointerStart=null;pointerHeld=false;
+ const first=pointerStart;pointerStart=null;
  if(!first||first.id!==e.pointerId)return;
  const dx=e.clientX-first.x,dy=e.clientY-first.y;
  if(dy< -32&&Math.abs(dy)>Math.abs(dx)*.76)requestFlick('up');
  else if(Math.abs(dx)>36)requestFlick(dx<0?'left':'right');
 });
-window.addEventListener('pointercancel',()=>{pointerStart=null;pointerHeld=false;});
-window.addEventListener('blur',()=>{pointerHeld=false;keyHeld=false;pointerStart=null;});
+window.addEventListener('pointercancel',()=>{pointerStart=null;});
+window.addEventListener('blur',()=>{pointerStart=null;});
 window.addEventListener('keydown',e=>{
  if((e.code==='Space'||e.code==='Enter')&&phase!=='running'){e.preventDefault();reset();return;}
  if(e.code==='ArrowUp'||e.code==='KeyW'){
-  e.preventDefault();keyHeld=true;if(!e.repeat)requestFlick('up');
+  e.preventDefault();if(!e.repeat)requestFlick('up');
  }
  if(e.code==='ArrowLeft'||e.code==='KeyA'){e.preventDefault();requestFlick('left');}
  if(e.code==='ArrowRight'||e.code==='KeyD'){e.preventDefault();requestFlick('right');}
  if(e.code==='KeyR'){e.preventDefault();reset();}
 });
-window.addEventListener('keyup',e=>{
- if(e.code==='ArrowUp'||e.code==='KeyW')keyHeld=false;
-});
+
 const forwardVelocity=(v:Vec3)=>v.y*SIN_SLOPE-v.z*COS_SLOPE;
 app.on('update',(dt:number)=>{
  const tick=Math.min(dt,.04);
@@ -308,23 +311,31 @@ app.on('update',(dt:number)=>{
  const frame=slopePosition(p);
  if(phase==='running'){
   elapsed+=tick;
-  // Low baseline motor for continuous player-controlled forward travel.
-  // It applies a FORCE to the real Bullet ball; it is not a teleport,
-  // locked constraint, or guaranteed speed. Impacts can overpower it.
-  const speed=forwardVelocity(v);
-  const baseline=clamp(15.6+(2.0-speed)*3.2,0,24);
-  const holding=pointerHeld||keyHeld;
-  const climbingForce=baseline+(holding?11:0);
-  body.applyForce(new Vec3(0,climbingForce*SIN_SLOPE,
-    -climbingForce*COS_SLOPE));
-  baseDriveFrames++;if(holding)continuousSeconds+=tick;
+  // Partial anti-slide support is weaker than slope gravity. It cannot
+  // move the ball upward by itself. A swipe is always required to climb.
+  body.applyForce(new Vec3(0,PLAYER_ANTISLIDE_FORCE*SIN_SLOPE,
+    -PLAYER_ANTISLIDE_FORCE*COS_SLOPE));
+  // Apply a SMALL mass-scaled counterforce and downhill drag ONLY to
+  // dynamic avalanche objects. Never slow the world's physics clock.
+  let downSpeedTotal=0;
+  for(const actor of active){
+    const rb=actor.entity.rigidbody!;
+    const actualV=rb.linearVelocity;
+    const downhillSpeed=Math.max(0,-forwardVelocity(actualV));
+    const opposite=hazardBrakingForce(actor.item.mass,downhillSpeed);
+    rb.applyForce(new Vec3(0,opposite*SIN_SLOPE,-opposite*COS_SLOPE));
+    downSpeedTotal+=downhillSpeed;
+    hazardMotionTicks++;
+  }
+  hazardSampleSpeed=active.length?downSpeedTotal/active.length:0;
   if(pendingImpulse){
-   const next=clamp(pendingImpulse,0,42);pendingImpulse=0;
+   const next=clamp(pendingImpulse,0,32);pendingImpulse=0;
    const speed=forwardVelocity(v);
-   const bounded=Math.max(0,Math.min(next,(23-speed)*1.4));
+   const bounded=Math.max(0,Math.min(next,(PLAYER_MAX_FORWARD_SPEED-speed)*1.4));
    if(bounded>0){
+    appliedSwipeCount++;lastAppliedSwipeMagnitude=bounded;
     body.applyImpulse(new Vec3(0,bounded*SIN_SLOPE,-bounded*COS_SLOPE));
-    body.applyTorqueImpulse(new Vec3(Math.min(2.75,bounded*.20),0,0));
+    body.applyTorqueImpulse(new Vec3(Math.min(1.85,bounded*.19),0,0));
    }
   }
   if(pendingSideImpulse){
@@ -404,8 +415,11 @@ window.__CLIMBER_TEST__={snapshot:()=>({
  queued:pending.length,spawnSkipped,giantsSpawned,maxRockMass,heavyHits,
  furnitureSpawned,verifiedCompoundFurniture,minVerifiedGap,
  lightPropsSpawned,lightImpacts,ghostedActors,
- peakGhosted,cameraOcclusionChecks,continuousSeconds,baseDriveFrames,
- holding: pointerHeld||keyHeld,
+ peakGhosted,cameraOcclusionChecks,hazardMotionTicks,hazardSampleSpeed,
+ swipeOnly:true,playerMotorEnabled:false,
+ hazardReleaseSpeed:HAZARD_RELEASE_SPEED,
+ playerSwipeImpulse:PLAYER_SWIPE_IMPULSE,
+ maxAllowedForwardSpeed:PLAYER_MAX_FORWARD_SPEED,
  softRockTarget:HAZARD_SOFT_TARGET,softLootTarget:LOOT_SOFT_TARGET,
  openFurnitureCount:active.filter(a=>a.item.shape==='table'||a.item.shape==='chair').length,
  furnitureCompoundBodies:active.filter(a=>
@@ -426,6 +440,7 @@ window.__CLIMBER_TEST__={snapshot:()=>({
  finishVisual:!!finish.children.length,
  forwardSpeed:forwardVelocity(body.linearVelocity),
  maxForwardSpeed,forwardFlicks,sideFlicks,swipeChain,
+ appliedSwipeCount,lastAppliedSwipeMagnitude,
  cameraY:camera.getPosition().y,cameraZ:camera.getPosition().z,
  ballVelocityY:body.linearVelocity.y
 })};

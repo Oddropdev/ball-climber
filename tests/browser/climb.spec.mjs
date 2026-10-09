@@ -26,7 +26,7 @@ test('C0.3: dynamic viewport and aspect updates immediately without reload',asyn
  expect(errors).toEqual([]);
  await context.close();
 });
-test('C0.4: continuous climb plus swipe boost, true Bullet hazard and summit emitter',async({page})=>{
+test('C0.5: swipe ONLY climb with finite capped momentum, true Bullet hazard and summit emitter',async({page})=>{
  test.setTimeout(100_000);
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/');
@@ -41,15 +41,19 @@ test('C0.4: continuous climb plus swipe boost, true Bullet hazard and summit emi
  await expect.poll(async()=>(await read(page))?.elapsed,{timeout:15000}).toBeGreaterThan(.9);
  s=await read(page);
  expect(s.forwardFlicks).toBe(0);
- expect(s.maxProgress).toBeGreaterThan(2.0);
- expect(s.baseDriveFrames).toBeGreaterThan(10);
+ expect(s.swipeOnly).toBe(true);
+ expect(s.playerMotorEnabled).toBe(false);
+ expect(s.maxProgress).toBeLessThan(3.6);
+ expect(s.playerSwipeImpulse).toBeLessThan(11.6);
+ expect(s.maxAllowedForwardSpeed).toBeLessThan(23);
  for(let i=0;i<7;i++){
   await page.keyboard.press('ArrowUp');
   await page.waitForTimeout(230);
  }
- await expect.poll(async()=>(await read(page))?.maxProgress,{timeout:12000}).toBeGreaterThan(5);
+ await expect.poll(async()=>(await read(page))?.maxProgress,{timeout:12000}).toBeGreaterThan(3.6);
  s=await read(page);
- expect(s.forwardFlicks).toBeGreaterThanOrEqual(5);
+ expect(s.forwardFlicks).toBeGreaterThanOrEqual(4);
+ expect(s.appliedSwipeCount).toBeGreaterThanOrEqual(3);
  expect(s.maxForwardSpeed).toBeGreaterThan(3.2);
  expect(s.cameraY).toBeLessThan(s.y+2);
  expect(s.cameraZ).toBeGreaterThan(s.z+5);
@@ -89,7 +93,7 @@ test('C0.3: physical crates + spheres, summit-only avalanche, trains, giant mass
  expect(t.destroyedTotal+t.liveFalling).toBe(t.spawnedTotal);
  await page.screenshot({path:'test-results/c03-giant-wave.png'});
 });
-test('C0.3: pointer flick emits one torque/forward impulse, no continuous drive',async({page})=>{
+test('C0.5: pointer flick emits ONE torque/forward impulse; held pointer gives no climb',async({page})=>{
  await page.goto('/');
  await expect.poll(async()=>(await read(page))?.physicsLoaded,{timeout:25000}).toBe(true);
  await page.locator('#start').click();
@@ -103,18 +107,29 @@ test('C0.3: pointer flick emits one torque/forward impulse, no continuous drive'
  await expect.poll(async()=>(await read(page))?.sideFlicks,{timeout:3500}).toBe(1);
 });
 
-test('C0.4: sustained press supplies continuous thrust; swiping is a separate burst',async({page})=>{
+test('C0.5: holding pointer does NOT climb; a single up flick gives momentum only once',async({page})=>{
  test.setTimeout(65000);
  await page.goto('/');
  await expect.poll(async()=>(await read(page))?.physicsLoaded,{timeout:25000}).toBe(true);
  await page.locator('#start').click();
  await page.mouse.move(185,570);await page.mouse.down();
- await expect.poll(async()=>(await read(page))?.continuousSeconds,{timeout:10000}).toBeGreaterThan(.45);
- expect((await read(page)).forwardFlicks).toBe(0);
+ await expect.poll(async()=>(await read(page))?.elapsed,{timeout:15000}).toBeGreaterThan(1.2);
+ const before=await read(page);
+ expect(before.forwardFlicks).toBe(0);
+ expect(before.maxProgress).toBeLessThan(3.6);
+ expect(before.playerMotorEnabled).toBe(false);
  await page.mouse.move(185,440,{steps:3});await page.mouse.up();
  await expect.poll(async()=>(await read(page))?.forwardFlicks,{timeout:4500}).toBe(1);
- expect((await read(page)).holding).toBe(false);
- await page.screenshot({path:'test-results/c04-continuous-and-swipe.png'});
+ await page.waitForTimeout(600);
+ const after=await read(page);
+ expect(after.forwardFlicks).toBe(1);
+ expect(after.swipeOnly).toBe(true);
+ // Input must reach the actual Bullet applyImpulse() site, not just
+ // increment the gesture counter. A single flick may roll back down a 60° hill.
+ await expect.poll(async()=>(await read(page))?.appliedSwipeCount,
+  {timeout:6500}).toBe(1);
+ expect((await read(page)).lastAppliedSwipeMagnitude).toBeGreaterThan(0);
+ await page.screenshot({path:'test-results/c05-swipe-only-uphill.png'});
 });
 test('C0.4: actual compound Bullet furniture with leg gaps and light pushable debris',async({page})=>{
  test.setTimeout(125000);
@@ -134,7 +149,11 @@ test('C0.4: actual compound Bullet furniture with leg gaps and light pushable de
  expect(s.peakRocks).toBeLessThanOrEqual(s.softRockTarget);
  expect(s.peakLoot).toBeLessThanOrEqual(s.softLootTarget);
  expect(s.cameraOcclusionChecks).toBeGreaterThan(4);
+ expect(s.hazardMotionTicks).toBeGreaterThan(150);
+ expect(s.hazardReleaseSpeed).toBeLessThan(4.3);
+ expect(s.hazardSampleSpeed).toBeLessThan(18);
+ expect(s.swipeOnly).toBe(true);
  expect(s.destroyedTotal+s.liveFalling).toBe(s.spawnedTotal);
- await page.screenshot({path:'test-results/c04-actual-furniture.png'});
+ await page.screenshot({path:'test-results/c05-slow-furniture.png'});
  expect(errors).toEqual([]);
 });
