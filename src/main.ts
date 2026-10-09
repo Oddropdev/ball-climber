@@ -23,6 +23,7 @@ let spawnedTotal=0,destroyedTotal=0,spawnWaves=0,maxLive=0;
 let liveRocks=0,liveLoot=0,peakRocks=0,peakLoot=0,spawnSkipped=0;
 let heavyHits=0,giantsSpawned=0,maxRockMass=0;
 let furnitureSpawned=0,lightPropsSpawned=0,lightImpacts=0;
+let verifiedCompoundFurniture=0,minVerifiedGap=100;
 let ghostedActors=0,peakGhosted=0,cameraOcclusionChecks=0;
 let lastOcclusionScan=-1e3;let continuousSeconds=0,baseDriveFrames=0;
 let totalRock=0,totalLoot=0,totalBox=0,totalSphere=0;
@@ -159,7 +160,14 @@ function spawnActor(item:SpawnItem){
   initialSpeed*COS_SLOPE);
  if(item.shape==='box')rb.angularVelocity=new Vec3(.3,item.slot%2?1.4:-1.4,.55);
  active.push({item,entity:e,bornAt:elapsed,original:collectRenders(e),ghosted:false});
- if(item.shape==='table'||item.shape==='chair')furnitureSpawned++;
+ if(item.shape==='table'||item.shape==='chair'){
+  furnitureSpawned++;
+  const opening=furnitureOpening(item);
+  minVerifiedGap=Math.min(minVerifiedGap,opening.width,opening.height);
+  if(e.collision?.type==='compound'&&e.rigidbody?.type==='dynamic'&&
+     e.children.filter(child=>(child as Entity).collision).length>=5)
+     verifiedCompoundFurniture++;
+ }
  if(item.shape==='light')lightPropsSpawned++;
  spawnedTotal++;
  if(item.kind==='rock'){
@@ -231,6 +239,7 @@ function reset(){
  liveRocks=0;liveLoot=0;peakRocks=0;peakLoot=0;spawnSkipped=0;
  heavyHits=0;giantsSpawned=0;maxRockMass=0;
  furnitureSpawned=0;lightPropsSpawned=0;lightImpacts=0;
+ verifiedCompoundFurniture=0;minVerifiedGap=100;
  ghostedActors=0;peakGhosted=0;cameraOcclusionChecks=0;
  lastOcclusionScan=-1e3;continuousSeconds=0;baseDriveFrames=0;
  totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
@@ -393,7 +402,8 @@ window.__CLIMBER_TEST__={snapshot:()=>({
  liveFalling:active.length,activeCap:ACTIVE_CAP,
  liveRocks,liveLoot,peakRocks,peakLoot,maxRocks:MAX_ROCKS,maxLoot:MAX_LOOT,
  queued:pending.length,spawnSkipped,giantsSpawned,maxRockMass,heavyHits,
- furnitureSpawned,lightPropsSpawned,lightImpacts,ghostedActors,
+ furnitureSpawned,verifiedCompoundFurniture,minVerifiedGap,
+ lightPropsSpawned,lightImpacts,ghostedActors,
  peakGhosted,cameraOcclusionChecks,continuousSeconds,baseDriveFrames,
  holding: pointerHeld||keyHeld,
  softRockTarget:HAZARD_SOFT_TARGET,softLootTarget:LOOT_SOFT_TARGET,
