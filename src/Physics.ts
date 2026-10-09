@@ -8,7 +8,7 @@ import {
 } from 'playcanvas';
 export type Point=[number,number,number];
 export type Shape=(name:string,type:'box'|'sphere'|'cylinder',pos:Point,
- size:Point,material:StandardMaterial,solid?:'static'|'dynamic'|false)=>Entity;
+ size:Point,material:StandardMaterial,solid?:'static'|'dynamic'|false,pitch?:number)=>Entity;
 export function material(color:string,gloss=.48){
  const m=new StandardMaterial();
  const v=[1,3,5].map(i=>parseInt(color.slice(i,i+2),16)/255) as Point;
@@ -47,8 +47,9 @@ export async function createPhysicsGame(canvas:HTMLCanvasElement){
    shadowResolution:768,shadowBias:.14,normalOffsetBias:.08});
  light.setEulerAngles(45,-28,0);app.root.addChild(light);
  app.scene.ambientLight=new Color(.65,.71,.84);
- const shape:Shape=(name,type,pos,size,surface,solid=false)=>{
+ const shape:Shape=(name,type,pos,size,surface,solid=false,pitch=0)=>{
    const entity=new Entity(name);entity.setPosition(...pos);
+   if(pitch)entity.setEulerAngles(pitch,0,0);
    const visual=new Entity(name+'-visual');
    visual.setLocalScale(...size);
    visual.addComponent('render',{type,material:surface,castShadows:solid!==false});
@@ -62,7 +63,7 @@ export async function createPhysicsGame(canvas:HTMLCanvasElement){
        radius:Math.max(size[0],size[2])/2,height:size[1]});
      entity.addComponent('rigidbody',{type:solid,
        mass:solid==='dynamic'?1.4:0,
-       friction:solid==='dynamic'?.78:.95,restitution:.16,
+       friction:solid==='dynamic'?.66:.92,restitution:.10,
        linearDamping:solid==='dynamic'?.24:0,
        angularDamping:solid==='dynamic'?.23:0});
    }
