@@ -98,73 +98,105 @@ const mysteryBox=shape('single-summit-mystery-question-box','box',
 const chute=shape('mystery-summit-drop-port','cylinder',
  onSlope(SLOPE_LENGTH+2.7,1.1),[3.3,.34,3.3],mats.gold);
 type DynamicActor={item:SpawnItem;entity:Entity;bornAt:number};
+type Queued={item:SpawnItem;at:number};
 const active:DynamicActor[]=[];
-const patterns:Record<Pattern,number>={scatter:0,row:0,train:0,diagonal:0,'loot-row':0,mixed:0};
-function disposeActors(){
- for(const a of active)a.entity.destroy();
- destroyedTotal+=active.length;active.length=0;
+const pending:Queued[]=[];
+const patterns=Object.fromEntries(PATTERNS.map(p=>[p,0])) as Record<Pattern,number>;
+function removeActor(i:number){
+ const actor=active[i]!;
+ if(actor.item.kind==='rock')liveRocks--;else liveLoot--;
+ actor.entity.destroy();active.splice(i,1);destroyedTotal++;
 }
-function spawnActor(item:SpawnItem,sourceS:number){
- const s=clamp(sourceS+10.5+item.distanceOffset,6,SLOPE_LENGTH+6);
- const clearance=SLAB_THICKNESS/2+Math.max(...item.size)*.55+1.1;
- const pos=onSlope(s,clearance,item.lane);
- const kind=item.kind;
- const mat=kind==='loot'?(item.shape==='sphere'?mats.loot:mats.lootBox):
+function disposeActors(){
+ while(active.length)removeActor(active.length-1);
+ pending.length=0;
+}
+function spawnActor(item:SpawnItem){
+ // Genuine physics origin: the summit, NOT an emitter moving with the player.
+ const departureX=item.lane*.13;
+ const clearance=SLAB_THICKNESS/2+Math.max(...item.size)*.65+1.1;
+ const position=onSlope(EMITTER_S,clearance,departureX);
+ const mat=item.kind==='loot'?
+  (item.shape==='sphere'?mats.loot:mats.lootBox):
   (item.shape==='sphere'?(item.slot%2?mats.rockDark:mats.rock):
-  item.size[1]>item.size[0]?mats.rectangle:mats.crate);
- const e=shape((kind==='rock'?'falling-rock-':'falling-loot-')+
-  item.wave+'-'+item.slot,item.shape,pos,item.size,mat,'dynamic',SLOPE_DEGREES);
+   item.giant?mats.rockDark:item.size[1]>item.size[0]?mats.rectangle:mats.crate);
+ const e=shape((item.kind==='rock'?'falling-rock-':'falling-loot-')+
+  item.wave+'-'+item.slot,item.shape,position,item.size,mat,
+  'dynamic',SLOPE_DEGREES,item.mass);
  const rb=e.rigidbody!;
- rb.linearVelocity=new Vec3(0,-1.3,0);
- if(item.shape==='box')rb.angularVelocity=new Vec3(.2,1.5,0);
+ const outward=(item.lane-departureX)*.92;
+ const initialSpeed=4.3+(item.slot%4)*.4;
+ rb.linearVelocity=new Vec3(outward,-initialSpeed*SIN_SLOPE,
+  initialSpeed*COS_SLOPE);
+ if(item.shape==='box')rb.angularVelocity=new Vec3(.3,item.slot%2?1.4:-1.4,.55);
  active.push({item,entity:e,bornAt:elapsed});
  spawnedTotal++;
- if(kind==='rock')totalRock++;else totalLoot++;
+ if(item.kind==='rock'){
+  totalRock++;liveRocks++;
+  maxRockMass=Math.max(maxRockMass,item.mass);
+  if(item.giant)giantsSpawned++;
+ }else{totalLoot++;liveLoot++;}
  if(item.shape==='box')totalBox++;else totalSphere++;
  maxLive=Math.max(maxLive,active.length);
+ peakRocks=Math.max(peakRocks,liveRocks);
+ peakLoot=Math.max(peakLoot,liveLoot);
 }
-function streamSpawns(playerS:number){
- if(elapsed<spawnNextAt)return;
- if(active.length>=ACTIVE_CAP-7){spawnNextAt=elapsed+.35;return;}
- const wave=makeWave(WAVE_SEED,spawnWaveIndex++);
- patterns[wave.pattern]++;
- spawnWaves++;
- for(const item of wave.items){
-  if(active.length>=ACTIVE_CAP)break;
-  spawnActor(item,playerS);
+function streamSpawns(){
+ // One pattern per wave, but each item has its OWN emission time.
+ // Train = actual back-to-back falling objects, not a painted line.
+ if(elapsed>=spawnNextAt&&pending.length<72){
+  const wave=makeWave(WAVE_SEED,spawnWaveIndex++);
+  patterns[wave.pattern]++;spawnWaves++;
+  for(const item of wave.items)pending.push({item,at:elapsed+item.delay});
+  spawnNextAt=elapsed+(spawnWaves%5===0?.39:.60);
  }
- // Endless sequence of NEW seeded waves, bounded live physics bodies.
- spawnNextAt=elapsed+(spawnWaves%4===0?.78:1.22);
+ pending.sort((a,b)=>a.at-b.at);
+ for(let i=0;i<pending.length;){
+  const job=pending[i]!;
+  if(job.at>elapsed)break;
+  const slotFree=job.item.kind==='rock'?liveRocks<MAX_ROCKS:liveLoot<MAX_LOOT;
+  if(slotFree&&active.length<ACTIVE_CAP){
+   spawnActor(job.item);pending.splice(i,1);
+  }else if(elapsed-job.at>1.2){
+   pending.splice(i,1);spawnSkipped++;
+  }else i++;
+ }
 }
 function reapActors(playerS:number,p:Vec3){
  for(let i=active.length-1;i>=0;i--){
-  const a=active[i]!,pos=a.entity.getPosition(),s=slopePosition(pos);
-  if(a.item.kind==='loot'&&p.distance(pos)<1.4){
+  const actor=active[i]!,pos=actor.entity.getPosition();
+  const loc=slopePosition(pos);
+  if(actor.item.kind==='loot'&&p.distance(pos)<1.5){
    loot++;ui.loot.textContent=String(loot);message('LOOT +1');
-   a.entity.destroy();active.splice(i,1);destroyedTotal++;continue;
+   removeActor(i);continue;
   }
-  // Reclaim Bullet body, collider, render mesh and entity — not hide-only.
-  if(s.progress<playerS-16||s.progress< -4||s.progress>playerS+45||
-     s.normalDistance< -7||pos.y< -10||elapsed-a.bornAt>16){
-    a.entity.destroy();active.splice(i,1);destroyedTotal++;
-  }
+  // Entity.destroy() releases the real Bullet body, not just the visual.
+  if(loc.progress<Math.min(-3,playerS-18)||loc.progress< -6||
+   loc.progress>EMITTER_S+10||loc.normalDistance< -9||
+   pos.y< -12||elapsed-actor.bornAt>13)removeActor(i);
  }
 }
 let lastImpact=-100;
 player.collision!.on('collisionstart',(evt:{other:Entity})=>{
  if(phase!=='running')return;
  if(evt.other.name.startsWith('falling-rock-')&&elapsed-lastImpact>.13){
-  contacts++;hits++;lastImpact=elapsed;message('ROCK IMPACT!');
+  contacts++;hits++;lastImpact=elapsed;
+  const actor=active.find(a=>a.entity===evt.other);
+  if(actor&&actor.item.mass>40){
+   heavyHits++;message('HEAVY IMPACT!');
+  }else message('ROCK IMPACT!');
  }
 });
 function reset(){
  disposeActors();
  phase='running';attempts++;elapsed=0;loot=0;hits=0;falls=0;contacts=0;
  spawnedTotal=0;destroyedTotal=0;spawnWaves=0;maxLive=0;
+ liveRocks=0;liveLoot=0;peakRocks=0;peakLoot=0;spawnSkipped=0;
+ heavyHits=0;giantsSpawned=0;maxRockMass=0;
  totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
  for(const k of Object.keys(patterns) as Pattern[])patterns[k]=0;
  sideFlicks=0;forwardFlicks=0;maxForwardSpeed=0;
- checkpointS=2;maxProgress=2;spawnNextAt=.6;spawnWaveIndex=0;
+ checkpointS=2;maxProgress=2;spawnNextAt=.2;spawnWaveIndex=0;
  swipeChain=0;lastSwipeEnd=-100;lastFlickTime=-100;
  pendingImpulse=0;pendingSideImpulse=0;
  body.teleport(...initial);
@@ -285,6 +317,14 @@ window.__CLIMBER_TEST__={snapshot:()=>({
  elapsed,loot,hits,falls,contacts,attempts,
  checkpointS,maxProgress,spawnedTotal,destroyedTotal,spawnWaves,maxLive,
  liveFalling:active.length,activeCap:ACTIVE_CAP,
+ liveRocks,liveLoot,peakRocks,peakLoot,maxRocks:MAX_ROCKS,maxLoot:MAX_LOOT,
+ queued:pending.length,spawnSkipped,giantsSpawned,maxRockMass,heavyHits,
+ emitterProgress:EMITTER_S,mysteryVisible:mysteryBox.enabled,
+ mysteryName:mysteryBox.name,chuteVisible:chute.enabled,
+ ...viewport(),
+ canvasClientWidth:canvas.getBoundingClientRect().width,
+ canvasClientHeight:canvas.getBoundingClientRect().height,
+ renderWidth:device.width,renderHeight:device.height,
  totalRock,totalLoot,totalBox,totalSphere,patterns,
  slopeDegrees:SLOPE_DEGREES,slopeLength:SLOPE_LENGTH,
  levelHeight:LEVEL_HEIGHT,rampCollider:ramp.rigidbody?.type,
