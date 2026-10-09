@@ -624,11 +624,14 @@ declare global{interface Window{__CLIMBER_TEST__?:{
 window.__CLIMBER_TEST__={
  approachSummit:testMode?()=>{
   if(phase!=='running'||body.type!=='dynamic')return;
-  // Test-only accelerated physics starting point. Does NOT call enterSummit
-  // or set phase: PlayCanvas/Bullet still advances uphill to summit detection.
-  const p=onSlope(SLOPE_LENGTH-.75);
-  body.teleport(...p);
-  body.linearVelocity=new Vec3(0,9.8*SIN_SLOPE,-9.8*COS_SLOPE);
+  // Controlled REAL Bullet landing on the summit platform. We advance
+  // from ABOVE the separate horizontal collider and require collisionstart;
+  // never synthesize the callback or force the summit phase. This validates
+  // platform contact, NOT a naturally steered full uphill run.
+  if(!levelScene)return;
+  summitContactPending=false;
+  body.teleport(0,levelScene.summitTop+PLAYER_RADIUS+2.0,-30.5);
+  body.linearVelocity=new Vec3(0,-1.0,-.1);
   body.angularVelocity=new Vec3();
  }:undefined,
  snapshot:()=>({
