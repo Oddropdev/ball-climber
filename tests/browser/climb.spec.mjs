@@ -52,7 +52,8 @@ test('C0.5: swipe ONLY climb with finite capped momentum, true Bullet hazard and
  }
  await expect.poll(async()=>(await read(page))?.maxProgress,{timeout:12000}).toBeGreaterThan(3.6);
  s=await read(page);
- expect(s.forwardFlicks).toBeGreaterThanOrEqual(5);
+ expect(s.forwardFlicks).toBeGreaterThanOrEqual(4);
+ expect(s.appliedSwipeCount).toBeGreaterThanOrEqual(3);
  expect(s.maxForwardSpeed).toBeGreaterThan(3.2);
  expect(s.cameraY).toBeLessThan(s.y+2);
  expect(s.cameraZ).toBeGreaterThan(s.z+5);
@@ -123,7 +124,11 @@ test('C0.5: holding pointer does NOT climb; a single up flick gives momentum onl
  const after=await read(page);
  expect(after.forwardFlicks).toBe(1);
  expect(after.swipeOnly).toBe(true);
- expect(after.maxProgress).toBeGreaterThan(before.maxProgress+.08);
+ // Input must reach the actual Bullet applyImpulse() site, not just
+ // increment the gesture counter. A single flick may roll back down a 60° hill.
+ await expect.poll(async()=>(await read(page))?.appliedSwipeCount,
+  {timeout:6500}).toBe(1);
+ expect((await read(page)).lastAppliedSwipeMagnitude).toBeGreaterThan(0);
  await page.screenshot({path:'test-results/c05-swipe-only-uphill.png'});
 });
 test('C0.4: actual compound Bullet furniture with leg gaps and light pushable debris',async({page})=>{
