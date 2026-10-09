@@ -18,7 +18,9 @@ export function summitMagnetForce(
  // A damped 3D spring, applied through Bullet to a real dynamic body.
  // Compensate world gravity locally, then brake its vertical launch and
  // sideways drift while pulling it onto the *solid* horizontal deck.
- const targetY=summitTop+playerRadius+.12;
+ // Bias the equilibrium BELOW contact height, otherwise gravity
+ // compensation would levitate the ball and collisionstart never fires.
+ const targetY=summitTop+playerRadius-.24;
  const ax=clamp(-position.x*9-velocity.x*5,-24,24);
  const ay=clamp((targetY-position.y)*13-velocity.y*5+22,-14,85);
  const az=clamp((MAGNET_TARGET_Z-position.z)*8-velocity.z*4.5,-32,32);
