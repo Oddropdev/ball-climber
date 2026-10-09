@@ -10,6 +10,10 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+# Only one C1 release pipeline may update the generated mobile-build branch.
+concurrency:
+  group: c1-0-infinite-preview
+  cancel-in-progress: true
 jobs:
   infinite-climb:
     if: github.event_name == 'workflow_dispatch' || github.head_ref == 'c1-0-infinite-climb-foundation'
@@ -50,7 +54,15 @@ jobs:
           git add -A
           git commit -m 'C1.0 infinite climb phone preview, no paid art'
           git remote add origin 'https://x-access-token:'"${GH_TOKEN}"'@github.com/Oddropdev/ball-climber.git'
-          git push origin HEAD:refs/heads/c1-0-mobile-static-preview
+          # Dedicated compiled-only branch has independent generated history.
+          # Replace it only if it has not changed since the checked remote SHA.
+          target=refs/heads/c1-0-mobile-static-preview
+          expected=$(git ls-remote origin "$target" | cut -f1)
+          if [ -n "$expected" ]; then
+            git push "--force-with-lease=$target:$expected" origin "HEAD:$target"
+          else
+            git push origin "HEAD:$target"
+          fi
       - name: Owner browser preview, screenshots, handoff
         if: always()
         uses: actions/upload-artifact@v4
