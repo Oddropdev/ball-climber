@@ -29,3 +29,11 @@ export function lowCameraDrop(blend:number,enabled:boolean){
  // The final platform retains its original high camera and legible UI.
  return -C13_LOW_CAMERA_DROP*(1-t*.4);
 }
+
+export function closeChaseOffset(blend:number,enabled:boolean){
+ const t=Math.max(0,Math.min(1,blend));
+ // C1.4 is lower and closer but eases back on the magnetic summit.
+ return enabled?{vertical:-.95*(1-t*.42),
+  behind:-2.25*(1-t*.48),fov:58}:
+  {vertical:0,behind:0,fov:61};
+}

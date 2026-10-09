@@ -5,9 +5,11 @@ import {createPhysicsGame,material} from './Physics';
 import {makeFurniture,furnitureOpening} from './Furniture';
 import {makeFallingObstacle,isComplexShape} from './ObstacleShapes';
 import {summitMagnetForce} from './SummitMagnet';
+import {buildRotorField,type RotorField} from './Rotors';
+import {rushPack} from './RushPack';
 import {chairGauntlet} from './ChairGauntlet';
 import {C13_MAX_COMPOUND_FURNITURE,sidewaysControl,sideDodgeImpulse,
- shouldRecoverInfinite,lowCameraDrop} from './ClimbFeel';
+ shouldRecoverInfinite,lowCameraDrop,closeChaseOffset} from './ClimbFeel';
 import {PLAYER_SWIPE_IMPULSE,PLAYER_CHAIN_INCREMENT,PLAYER_MAX_FORWARD_SPEED,
  PLAYER_ANTISLIDE_FORCE,PLAYER_SWIPE_COOLDOWN,HAZARD_RELEASE_SPEED,
  HAZARD_MAX_AGE_SECONDS,hazardBrakingForce,
@@ -32,6 +34,7 @@ const params=new URL(window.location.href).searchParams;
 const infiniteMode=params.get('mode')==='infinite';
 const testMode=infiniteMode&&params.get('test')==='1';
 const lowCameraMode=infiniteMode&&params.get('camera')!=='classic';
+const closeCameraMode=lowCameraMode&&params.get('camera')!=='low';
 const saveKey='oddrop-ball-climber-c1-v1';
 function readSave():ClimbSave{
  if(!infiniteMode)return safeSave(null);
@@ -40,10 +43,12 @@ function readSave():ClimbSave{
 }
 let save=readSave(),currentSpec:LevelSpec=levelSpec(save.level);
 let levelScene:ClimbLevel|null=null;
+let rotorField:RotorField|null=null;
 let stagedLevels=0,disposedLevels=0,summitEvents=0,onSummit=false;
 let summitContactEvents=0,summitContactPending=false;
 let prewarmedActors=0,prewarmedRocks=0,prewarmedLoot=0;
 let gauntletActors=0,gauntletChairs=0,gauntletLoot=0;
+let rushActors=0,rushChairs=0;
 let barrelSpawned=0,beamSpawned=0,bouncerSpawned=0,complexSpawned=0;
 let magnetTicks=0,magnetEngagements=0,magnetActive=false;
 let arrivalCameraBlend=0;
@@ -139,8 +144,9 @@ for(let i=0;i<=24;i++){
  i%4===0?mats.edge:mats.roadStripe,false,SLOPE_DEGREES);
  ledges.push(marker);
 }
-// Side edges are VISUAL GUIDES only. Falling over them is a genuine failure.
-for(let i=0;i<18;i++){
+// Remove oversized roadside spheres in Infinite Mode; never block sightlines.
+// The older C0.7 demo retains its original decorative edge language.
+if(!infiniteMode)for(let i=0;i<18;i++){
  const s=2+i*2.6,side=i%2?1:-1;
  shape('side-cliff-'+i,'sphere',onSlope(s,-2.2,side*(7.7+(i%4)*.5)),
  [3.3,3.3,3.3],i%3?mats.island:mats.roadStripe);
@@ -172,10 +178,12 @@ function refreshBadge(){
 }
 function stageLevel(){
  if(!infiniteMode)return;
+ if(rotorField){rotorField.dispose();rotorField=null;}
  if(levelScene){levelScene.dispose();disposedLevels++;}
  currentSpec=levelSpec(save.level);
  const p=paletteFor(currentSpec);
  levelScene=buildClimbLevel(currentSpec,shape,p);stagedLevels++;
+ rotorField=buildRotorField(app,currentSpec,p.trim,p.marker);
  for(const v of (ramp.children[0] as Entity).render!.meshInstances)v.material=p.road;
  for(const marker of ledges)
   for(const m of (marker.children[0] as Entity).render!.meshInstances)m.material=p.trim;
@@ -410,6 +418,7 @@ function reset(){
  totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
  prewarmedActors=0;prewarmedRocks=0;prewarmedLoot=0;
  gauntletActors=0;gauntletChairs=0;gauntletLoot=0;
+ rushActors=0;rushChairs=0;
  barrelSpawned=0;beamSpawned=0;bouncerSpawned=0;complexSpawned=0;
  magnetTicks=0;magnetEngagements=0;magnetActive=false;
  arrivalCameraBlend=0;
@@ -438,6 +447,12 @@ function reset(){
    spawnActor(pre.item,pre.progress);gauntletActors++;
    if(pre.item.shape==='chair')gauntletChairs++;
    if(pre.item.kind==='loot')gauntletLoot++;
+  }
+  // Physical front-loaded obstacle packet ensures a fast swiping player
+  // meets falling furniture before the summit, not only at its top.
+  for(const pre of rushPack(currentSpec.waveSeed,currentSpec.biome)){
+   spawnActor(pre.item,pre.progress);rushActors++;
+   if(pre.item.shape==='chair')rushChairs++;
   }
  }
  ui.loot.textContent='0';ui.dialog.classList.add('hidden');
@@ -568,6 +583,7 @@ app.on('update',(dt:number)=>{
  const frame=slopePosition(p);
  if(phase==='running'){
   elapsed+=tick;
+  if(infiniteMode)rotorField?.update(tick);
   // Charged mass fades when swipes stop. Real Bullet mass + inertia updates
   // happen only on level change, never every frame.
   setCharge(chargeAfterIdle(peakChargeLevel,elapsed-lastWeightSwipeTime));
@@ -671,10 +687,11 @@ app.on('update',(dt:number)=>{
    phase==='summit'):0;
  arrivalCameraBlend+=(summitBlend-arrivalCameraBlend)*clamp(tick*6,0,1);
  const offsets=summitCameraOffsets(arrivalCameraBlend);
+ const closeChase=closeChaseOffset(arrivalCameraBlend,closeCameraMode);
  const cameraTarget=new Vec3(
   p.x*.74,p.y-UP[1]*6+NORMAL[1]*10.2+offsets.vertical+
-   lowCameraDrop(arrivalCameraBlend,lowCameraMode),
-  p.z-UP[2]*6+NORMAL[2]*10.2+(offsets.behind-11.8));
+   lowCameraDrop(arrivalCameraBlend,lowCameraMode)+closeChase.vertical,
+  p.z-UP[2]*6+NORMAL[2]*10.2+(offsets.behind-11.8)+closeChase.behind);
  const now=camera.getPosition();
  const lag=now.distance(cameraTarget);
  const ease=lag>7?1:clamp(tick*9,0,1);
@@ -683,7 +700,7 @@ app.on('update',(dt:number)=>{
   now.y+(cameraTarget.y-now.y)*ease,
   now.z+(cameraTarget.z-now.z)*ease);
  camera.lookAt(p.x*.9,p.y+offsets.focusHeight,p.z-offsets.focusAhead);
- camera.camera!.fov=61;
+ camera.camera!.fov=closeChase.fov;
  // The WORLD is still physically solid. Only obstructing VISUAL meshes
  // turn translucent when between camera and ball. No camera teleports.
  if(elapsed-lastOcclusionScan>.095){
@@ -715,9 +732,19 @@ app.on('update',(dt:number)=>{
 app.start();
 declare global{interface Window{__CLIMBER_TEST__?:{
  snapshot:()=>Record<string,unknown>;approachSummit?:()=>void;
- approachMagnet?:()=>void;testFall?:()=>void;testSwipe?:(direction:'left'|'right')=>void
+ approachMagnet?:()=>void;testFall?:()=>void;testSwipe?:(direction:'left'|'right')=>void;
+ testRotor?:()=>void
 }}}
 window.__CLIMBER_TEST__={
+ testRotor:testMode?()=>{
+  const plan=rotorField?.specs[0];
+  if(phase!=='running'||!plan)return;
+  const actor=active.find(a=>a.item.kind==='rock'&&a.item.shape==='barrel');
+  if(!actor)return;
+  actor.entity.rigidbody!.teleport(...onSlope(plan.progress,SLAB_THICKNESS/2+1.05,1.1));
+  actor.entity.rigidbody!.linearVelocity=new Vec3();
+  actor.entity.rigidbody!.angularVelocity=new Vec3();
+ }:undefined,
  testSwipe:testMode?(direction:'left'|'right')=>requestFlick(direction):undefined,
  testFall:testMode?()=>{
   if(phase!=='running'||body.type!=='dynamic')return;
@@ -756,7 +783,14 @@ window.__CLIMBER_TEST__={
   levelPhysicalObstacles:levelScene?.physicalEntities??0,
   stagedLevels,disposedLevels,summitEvents,onSummit,
   prewarmedActors,prewarmedRocks,prewarmedLoot,
-  gauntletActors,gauntletChairs,gauntletLoot,
+  gauntletActors,gauntletChairs,gauntletLoot,rushActors,rushChairs,
+  rotorCount:rotorField?.count??0,
+  rotorKinds:rotorField?.specs.map(p=>p.kind)??[],
+  rotorTypes:rotorField?.types??[],
+  rotorTurns:rotorField?.turns??0,
+  rotorFrames:rotorField?.updatedFrames??0,
+  rotorContacts:rotorField?.contacts??0,
+  rotorFallingContacts:rotorField?.contactsWithFalling??0,
   barrelSpawned,beamSpawned,bouncerSpawned,complexSpawned,
   magnetTicks,magnetEngagements,magnetActive,arrivalCameraBlend,
   activeComplexCount:active.filter(a=>isComplexShape(a.item.shape)).length,
@@ -811,8 +845,10 @@ window.__CLIMBER_TEST__={
  maxPlayerMass:MAX_PLAYER_MASS,chargeLevel,peakChargeLevel,
  massUpdateCount,maximumChargedMass,speedCapActivations,
  chargedMediumImpacts,
- cameraLowMode:lowCameraMode,
- cameraDrop:lowCameraDrop(arrivalCameraBlend,lowCameraMode),
+ cameraLowMode:lowCameraMode,cameraCloseMode:closeCameraMode,
+ cameraDrop:lowCameraDrop(arrivalCameraBlend,lowCameraMode)+
+  closeChaseOffset(arrivalCameraBlend,closeCameraMode).vertical,
+ cameraDistance:camera.getPosition().distance(player.getPosition()),
  cameraY:camera.getPosition().y,cameraZ:camera.getPosition().z,
  ballVelocityX:body.linearVelocity.x,
  ballVelocityY:body.linearVelocity.y

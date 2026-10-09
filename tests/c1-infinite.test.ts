@@ -14,7 +14,7 @@ test('C1.0: deterministic 1,000-level corpus is bounded and repeats exactly',()=
   expect(a.index).toBe(i);
   expect(a.slopeLength).toBe(SLOPE_LENGTH);
   expect(a.summitWidth).toBeGreaterThanOrEqual(9);
-  expect(a.sideBoulders).toBeLessThanOrEqual(6);
+  expect(a.sideBoulders).toBe(0);
   ids.add(a.index);seeds.add(a.waveSeed);biomes.add(a.biome);
  }
  expect(ids.size).toBe(1000);
