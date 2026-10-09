@@ -3,6 +3,7 @@ import {levelSpec,validateLevelSpec} from '../src/LevelSpec';
 import {SKINS,INITIAL_SAVE,safeSave,purchaseSkin,
  bankSummitLoot,unlockNextLevel} from '../src/SkinShop';
 import {SLOPE_LENGTH} from '../src/Course';
+import {INFINITE_SLOPE_LENGTH} from '../src/InfiniteGeometry';
 import {summitSurfaceY} from '../src/ClimbLevel';
 
 test('C1.0: deterministic 1,000-level corpus is bounded and repeats exactly',()=>{
@@ -12,7 +13,7 @@ test('C1.0: deterministic 1,000-level corpus is bounded and repeats exactly',()=
   expect(a).toEqual(b);
   expect(validateLevelSpec(a)).toBe(true);
   expect(a.index).toBe(i);
-  expect(a.slopeLength).toBe(SLOPE_LENGTH);
+  expect(a.slopeLength).toBe(INFINITE_SLOPE_LENGTH);
   expect(a.summitWidth).toBeGreaterThanOrEqual(9);
   expect(a.sideBoulders).toBe(0);
   ids.add(a.index);seeds.add(a.waveSeed);biomes.add(a.biome);
@@ -28,8 +29,9 @@ test('C1.0: deterministic 1,000-level corpus is bounded and repeats exactly',()=
  expect(()=>levelSpec(-1)).toThrow();
 });
 test('C1.0: summit is physically higher than original slope start',()=>{
- expect(summitSurfaceY()).toBeGreaterThan(40);
- expect(summitSurfaceY()).toBeLessThan(44);
+ expect(summitSurfaceY()).toBeGreaterThan(52);
+ expect(summitSurfaceY()).toBeLessThan(54);
+ expect(INFINITE_SLOPE_LENGTH).toBeGreaterThan(SLOPE_LENGTH);
 });
 test('C1.0: cosmetic purchases do not grant movement powers',()=>{
  expect(SKINS).toHaveLength(4);
