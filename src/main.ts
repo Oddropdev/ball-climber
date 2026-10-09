@@ -822,9 +822,27 @@ declare global{interface Window{__CLIMBER_TEST__?:{
  snapshot:()=>Record<string,unknown>;approachSummit?:()=>void;
  approachMagnet?:()=>void;testFall?:()=>void;testSwipe?:(direction:'left'|'right')=>void;
  testRotor?:()=>void;testPurge?:()=>void;testBaseEdge?:()=>void;
- testGoSlope?:()=>void;testPairPass?:()=>void
+ testGoSlope?:()=>void;testPairPass?:()=>void;
+ testSummitSwipe?:()=>void;testOverlaunch?:()=>void;
+ testCharge?:()=>void
 }}}
 window.__CLIMBER_TEST__={
+ testCharge:testMode?()=>{
+  if(phase==='running')setCharge(4);
+ }:undefined,
+ testSummitSwipe:testMode?()=>{
+  if(phase!=='running')return;
+  body.teleport(...onSlope(courseLength-1.5));
+  body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
+  requestFlick('up');
+ }:undefined,
+ testOverlaunch:testMode?()=>{
+  if(phase!=='running'||!levelScene)return;
+  // Deliberately escape up and OVER the lip, without any fake contact.
+  body.teleport(0,levelScene.summitTop+7.2,summitCenterZ(courseLength)+1);
+  body.linearVelocity=new Vec3(0,24,-9);
+  body.angularVelocity=new Vec3();
+ }:undefined,
  testPurge:testMode?()=>{
   if(phase!=='running')return;
   const actor=active.find(a=>a.item.kind==='rock'&&a.item.shape==='barrel')??
@@ -993,6 +1011,9 @@ window.__CLIMBER_TEST__={
   [camera.getPosition().x,camera.getPosition().y,camera.getPosition().z],
   [focusProbe.x,focusProbe.y,focusProbe.z]),
  cameraY:camera.getPosition().y,cameraZ:camera.getPosition().z,
+ ballScreenX:camera.camera!.worldToScreen(player.getPosition()).x,
+ ballScreenY:camera.camera!.worldToScreen(player.getPosition()).y,
+ ballScreenDepth:camera.camera!.worldToScreen(player.getPosition()).z,
  ballVelocityX:body.linearVelocity.x,
  ballVelocityY:body.linearVelocity.y
 })};
