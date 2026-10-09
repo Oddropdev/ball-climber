@@ -17,14 +17,18 @@ export function summitMagnetForce(
   !Number.isFinite(mass)||mass<=0)return null;
  // Two-stage Bullet spring: clear the platform's uphill lip FIRST.
  // A direct diagonal pull otherwise slams fast runners into its vertical face.
- const beforeLip=position.z> -24.3&&
+ // Over the solid pad, let gravity produce the actual contact.
+ // Applying upward gravity compensation here can prevent collisionstart.
+ const overDeck=position.z< -24.2&&
+  position.y>=summitTop+playerRadius-.1;
+ const beforeLip=!overDeck&&
   position.y<summitTop+playerRadius+.25;
  // Once above the edge, settle slightly INTO the static collider:
  // targeting above the surface would levitate forever without contact.
  const targetY=beforeLip?summitTop+playerRadius+.42:
   summitTop+playerRadius-.24;
  const ax=clamp(-position.x*9-velocity.x*5,-24,24);
- const ay=beforeLip?
+ const ay=overDeck?0:beforeLip?
   clamp((targetY-position.y)*20-velocity.y*4+22,0,95):
   clamp((targetY-position.y)*13-velocity.y*5+22,-14,85);
  // Before clearance, brake the horizontal component by a short standoff
