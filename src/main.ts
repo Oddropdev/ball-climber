@@ -19,6 +19,8 @@ import {levelSpec,type LevelSpec} from './LevelSpec';
 import {buildClimbLevel,type ClimbLevel} from './ClimbLevel';
 import {SKINS,safeSave,purchaseSkin,bankSummitLoot,unlockNextLevel,
  type ClimbSave} from './SkinShop';
+import {warmStartItems,refineInfiniteItem,smoothSummitBlend,
+ summitCameraOffsets,MYSTERY_BOX_HEIGHT,MYSTERY_BOX_SIZE} from './ClimbPacing';
 import './style.css';
 type Phase='ready'|'running'|'summit'|'complete'|'error';
 const params=new URL(window.location.href).searchParams;
@@ -34,6 +36,9 @@ let save=readSave(),currentSpec:LevelSpec=levelSpec(save.level);
 let levelScene:ClimbLevel|null=null;
 let stagedLevels=0,disposedLevels=0,summitEvents=0,onSummit=false;
 let summitContactEvents=0,summitContactPending=false;
+let prewarmedActors=0,prewarmedRocks=0,prewarmedLoot=0;
+let barrelSpawned=0,beamSpawned=0,bouncerSpawned=0;
+let arrivalCameraBlend=0;
 let lastSummitContactProgress=0,verifiedSummitArrivals=0;
 const canvas=document.getElementById('application-canvas') as HTMLCanvasElement;
 const $=(id:string)=>document.getElementById(id)!;
@@ -201,9 +206,14 @@ const boxMaterial=material('#FFFFFF',.85);
 boxMaterial.diffuseMap=tex;boxMaterial.emissive=new Color(.18,.09,.28);
 boxMaterial.emissiveIntensity=.75;boxMaterial.update();
 const mysteryBox=shape('single-summit-mystery-question-box','box',
- onSlope(SLOPE_LENGTH+4,3.4),[5.3,5.3,5.3],boxMaterial);
+ infiniteMode?onSlope(SLOPE_LENGTH+14,MYSTERY_BOX_HEIGHT):
+  onSlope(SLOPE_LENGTH+4,3.4),
+ infiniteMode?[MYSTERY_BOX_SIZE,MYSTERY_BOX_SIZE,MYSTERY_BOX_SIZE]:
+  [5.3,5.3,5.3],boxMaterial);
 const chute=shape('mystery-summit-drop-port','cylinder',
- onSlope(SLOPE_LENGTH+2.7,1.1),[3.3,.34,3.3],mats.gold);
+ infiniteMode?onSlope(SLOPE_LENGTH+7,6):
+  onSlope(SLOPE_LENGTH+2.7,1.1),
+ infiniteMode?[4.5,.34,4.5]:[3.3,.34,3.3],mats.gold);
 type RenderSurface={instance:MeshInstance;material:Material};
 type DynamicActor={item:SpawnItem;entity:Entity;bornAt:number;
   original:RenderSurface[];ghostTier:OcclusionTier};
@@ -230,11 +240,12 @@ function disposeActors(){
  while(active.length)removeActor(active.length-1);
  pending.length=0;
 }
-function spawnActor(item:SpawnItem){
+function spawnActor(item:SpawnItem,earlyProgress?:number){
  // Genuine physics origin: the summit, NOT an emitter moving with the player.
  const departureX=item.lane*.13;
  const clearance=SLAB_THICKNESS/2+Math.max(...item.size)*.65+1.1;
- const position=onSlope(EMITTER_S,clearance,departureX);
+ const position=onSlope(earlyProgress??EMITTER_S,clearance,
+  earlyProgress===undefined?departureX:item.lane);
  const mat=item.shape==='light'?mats.light:item.kind==='loot'?
   (item.shape==='sphere'?mats.loot:mats.lootBox):
   (item.shape==='sphere'?(item.slot%2?mats.rockDark:mats.rock):
@@ -243,17 +254,26 @@ function spawnActor(item:SpawnItem){
   makeFurniture(app,item,position,
     item.shape==='table'?mats.furniture:mats.chair):
   shape((item.kind==='rock'?'falling-rock-':'falling-loot-')+
-   item.wave+'-'+item.slot,item.shape==='light'?'box':item.shape,
+   item.wave+'-'+item.slot,
+   item.shape==='barrel'?'cylinder':
+    item.shape==='beam'||item.shape==='light'?'box':
+    item.shape==='bouncer'?'sphere':item.shape,
    position,item.size,mat,'dynamic',SLOPE_DEGREES,item.mass);
  const rb=e.rigidbody!;
  if(item.shape==='light'){
   rb.restitution=.6;rb.linearDamping=.025;rb.angularDamping=.06;
  }
+ if(item.shape==='bouncer')rb.restitution=.82;
+ if(item.shape==='barrel')rb.angularDamping=.08;
  const outward=(item.lane-departureX)*.92;
  const initialSpeed=HAZARD_RELEASE_SPEED+(item.slot%4)*.22;
  rb.linearVelocity=new Vec3(outward,-initialSpeed*SIN_SLOPE,
   initialSpeed*COS_SLOPE);
- if(item.shape==='box')rb.angularVelocity=new Vec3(.3,item.slot%2?1.4:-1.4,.55);
+ if(item.shape==='box'||item.shape==='barrel'||item.shape==='beam')
+  rb.angularVelocity=new Vec3(.3,item.slot%2?1.4:-1.4,.55);
+ if(item.shape==='barrel')barrelSpawned++;
+ if(item.shape==='beam')beamSpawned++;
+ if(item.shape==='bouncer')bouncerSpawned++;
  active.push({item,entity:e,bornAt:elapsed,original:collectRenders(e),ghostTier:0});
  if(item.shape==='table'||item.shape==='chair'){
   furnitureSpawned++;
@@ -270,7 +290,8 @@ function spawnActor(item:SpawnItem){
   maxRockMass=Math.max(maxRockMass,item.mass);
   if(item.giant)giantsSpawned++;
  }else{totalLoot++;liveLoot++;}
- if(item.shape==='box')totalBox++;else totalSphere++;
+ if(item.shape==='box'||item.shape==='beam')totalBox++;
+ else totalSphere++;
  maxLive=Math.max(maxLive,active.length);
  peakRocks=Math.max(peakRocks,liveRocks);
  peakLoot=Math.max(peakLoot,liveLoot);
@@ -281,7 +302,9 @@ function streamSpawns(){
  if(elapsed>=spawnNextAt&&pending.length<58){
   const wave=makeWave(infiniteMode?currentSpec.waveSeed:WAVE_SEED,spawnWaveIndex++);
   patterns[wave.pattern]++;spawnWaves++;
-  for(const item of wave.items)pending.push({item,at:elapsed+item.delay});
+  for(const item of wave.items)pending.push({
+   item:infiniteMode?refineInfiniteItem(item,currentSpec.waveSeed):item,
+   at:elapsed+item.delay});
   // Lower the physical danger density but preserve visually rich mixed bursts.
   spawnNextAt=elapsed+(spawnWaves%5===0?.78:1.18);
  }
@@ -360,6 +383,9 @@ function reset(){
  strongOcclusionEvents=0;lastSideControlFraction=1;
  lastOcclusionScan=-1e3;hazardMotionTicks=0;hazardSampleSpeed=0;
  totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
+ prewarmedActors=0;prewarmedRocks=0;prewarmedLoot=0;
+ barrelSpawned=0;beamSpawned=0;bouncerSpawned=0;
+ arrivalCameraBlend=0;
  for(const k of Object.keys(patterns) as Pattern[])patterns[k]=0;
  sideFlicks=0;forwardFlicks=0;maxForwardSpeed=0;
  appliedSwipeCount=0;lastAppliedSwipeMagnitude=0;
@@ -371,6 +397,15 @@ function reset(){
  pendingImpulse=0;pendingSideImpulse=0;
  body.teleport(...initial);
  body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
+ if(infiniteMode){
+  // Eight pre-positioned dynamic objects simulate an avalanche already
+  // moving when the player begins, so fast upward swipes encounter hazards.
+  for(const pre of warmStartItems(currentSpec.waveSeed)){
+   spawnActor(pre.item,pre.progress);prewarmedActors++;
+   if(pre.item.kind==='rock')prewarmedRocks++;
+   else prewarmedLoot++;
+  }
+ }
  ui.loot.textContent='0';ui.dialog.classList.add('hidden');
  if(infiniteMode)applySkin();
  root.classList.add('playing');
@@ -577,9 +612,13 @@ app.on('update',(dt:number)=>{
  }
  // A resilient chase camera ALWAYS re-centers on the actual displaced
  // ball, rather than staying anchored to an uphill point after impacts.
+ const summitBlend=infiniteMode?smoothSummitBlend(frame.progress,
+   phase==='summit'):0;
+ arrivalCameraBlend+=(summitBlend-arrivalCameraBlend)*clamp(tick*6,0,1);
+ const offsets=summitCameraOffsets(arrivalCameraBlend);
  const cameraTarget=new Vec3(
-  p.x*.74,p.y-UP[1]*6+NORMAL[1]*10.2,
-  p.z-UP[2]*6+NORMAL[2]*10.2);
+  p.x*.74,p.y-UP[1]*6+NORMAL[1]*10.2+offsets.vertical,
+  p.z-UP[2]*6+NORMAL[2]*10.2+(offsets.behind-11.8));
  const now=camera.getPosition();
  const lag=now.distance(cameraTarget);
  const ease=lag>7?1:clamp(tick*9,0,1);
@@ -587,7 +626,7 @@ app.on('update',(dt:number)=>{
   now.x+(cameraTarget.x-now.x)*ease,
   now.y+(cameraTarget.y-now.y)*ease,
   now.z+(cameraTarget.z-now.z)*ease);
- camera.lookAt(p.x*.9,p.y+UP[1]*5,p.z+UP[2]*5);
+ camera.lookAt(p.x*.9,p.y+offsets.focusHeight,p.z-offsets.focusAhead);
  camera.camera!.fov=61;
  // The WORLD is still physically solid. Only obstructing VISUAL meshes
  // turn translucent when between camera and ball. No camera teleports.
@@ -644,6 +683,8 @@ window.__CLIMBER_TEST__={
   sceneEntities:levelScene?.sceneEntities??0,
   levelPhysicalObstacles:levelScene?.physicalEntities??0,
   stagedLevels,disposedLevels,summitEvents,onSummit,
+  prewarmedActors,prewarmedRocks,prewarmedLoot,
+  barrelSpawned,beamSpawned,bouncerSpawned,arrivalCameraBlend,
   summitContactEvents,summitContactPending,
   lastSummitContactProgress,verifiedSummitArrivals,
   wallet:save.wallet,ownedSkins:[...save.owned],equippedSkin:save.equipped,
@@ -672,7 +713,10 @@ window.__CLIMBER_TEST__={
   a.entity.collision?.type==='compound'&&a.entity.rigidbody?.type==='dynamic').length,
  minFurnitureOpening:active.filter(a=>a.item.shape==='table'||a.item.shape==='chair')
    .reduce((min,a)=>Math.min(min,furnitureOpening(a.item).width),100),
- emitterProgress:EMITTER_S,mysteryVisible:mysteryBox.enabled,
+ emitterProgress:EMITTER_S,
+  mysteryPositionY:mysteryBox.getPosition().y,
+  mysterySize:infiniteMode?MYSTERY_BOX_SIZE:5.3,
+  mysteryVisible:mysteryBox.enabled,
  mysteryName:mysteryBox.name,chuteVisible:chute.enabled,
  viewportW:viewport().width,viewportH:viewport().height,
  resizeEvents:viewport().resizeEvents,
