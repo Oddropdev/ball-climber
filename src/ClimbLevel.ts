@@ -16,14 +16,14 @@ export function buildClimbLevel(spec:LevelSpec,shape:Shape,
  const summitTop=summitSurfaceY();
  // A REAL horizontal Bullet platform, situated at the uphill edge.
  const platform=add(shape('level-'+spec.index+'-summit-platform','box',
-  [0,summitTop-.38,-26.6],[spec.summitWidth,.76,5.8],
+  [0,summitTop-.38,-30.5],[spec.summitWidth,.76,14],
   palette.road,'static'));
  for(const direction of [-1,1]){
   add(shape('level-'+spec.index+'-summit-wing-'+direction,'sphere',
-   [direction*(spec.summitWidth/2+1.8),summitTop-2,-27.6],
+   [direction*(spec.summitWidth/2+1.8),summitTop-2,-29.7],
    [3.4,1.8,3.4],palette.island,false));
   add(shape('level-'+spec.index+'-summit-post-'+direction,'cylinder',
-   [direction*(spec.summitWidth/2-.55),summitTop+.75,-28],
+   [direction*(spec.summitWidth/2-.55),summitTop+.75,-36.8],
    [.25,1.5,.25],palette.trim,false));
  }
  // Physically solid side boulders are generated afresh per seed; the middle
