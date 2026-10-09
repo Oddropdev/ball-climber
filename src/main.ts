@@ -5,6 +5,9 @@ import {createPhysicsGame,material} from './Physics';
 import {makeFurniture,furnitureOpening} from './Furniture';
 import {makeFallingObstacle,isComplexShape} from './ObstacleShapes';
 import {summitMagnetForce} from './SummitMagnet';
+import {chairGauntlet} from './ChairGauntlet';
+import {C13_MAX_COMPOUND_FURNITURE,sidewaysControl,sideDodgeImpulse,
+ shouldRecoverInfinite,lowCameraDrop} from './ClimbFeel';
 import {PLAYER_SWIPE_IMPULSE,PLAYER_CHAIN_INCREMENT,PLAYER_MAX_FORWARD_SPEED,
  PLAYER_ANTISLIDE_FORCE,PLAYER_SWIPE_COOLDOWN,HAZARD_RELEASE_SPEED,
  HAZARD_MAX_AGE_SECONDS,hazardBrakingForce,
@@ -28,6 +31,7 @@ type Phase='ready'|'running'|'summit'|'complete'|'error';
 const params=new URL(window.location.href).searchParams;
 const infiniteMode=params.get('mode')==='infinite';
 const testMode=infiniteMode&&params.get('test')==='1';
+const lowCameraMode=infiniteMode&&params.get('camera')!=='classic';
 const saveKey='oddrop-ball-climber-c1-v1';
 function readSave():ClimbSave{
  if(!infiniteMode)return safeSave(null);
@@ -39,6 +43,7 @@ let levelScene:ClimbLevel|null=null;
 let stagedLevels=0,disposedLevels=0,summitEvents=0,onSummit=false;
 let summitContactEvents=0,summitContactPending=false;
 let prewarmedActors=0,prewarmedRocks=0,prewarmedLoot=0;
+let gauntletActors=0,gauntletChairs=0,gauntletLoot=0;
 let barrelSpawned=0,beamSpawned=0,bouncerSpawned=0,complexSpawned=0;
 let magnetTicks=0,magnetEngagements=0,magnetActive=false;
 let arrivalCameraBlend=0;
@@ -317,7 +322,8 @@ function streamSpawns(){
    item:infiniteMode?refineInfiniteItem(item,currentSpec.waveSeed,currentSpec.biome):item,
    at:elapsed+item.delay});
   // Lower the physical danger density but preserve visually rich mixed bursts.
-  spawnNextAt=elapsed+(spawnWaves%5===0?.78:1.18);
+  spawnNextAt=elapsed+(infiniteMode?
+   (spawnWaves%5===0?.78:1.02):(spawnWaves%5===0?.78:1.18));
  }
  pending.sort((a,b)=>a.at-b.at);
  for(let i=0;i<pending.length;){
@@ -330,7 +336,11 @@ function streamSpawns(){
   // Keep a strict active budget on low-end Android devices.
   const compoundBudget=!isComplexShape(job.item.shape)||
    active.filter(a=>isComplexShape(a.item.shape)).length<6;
-  if(slotFree&&compoundBudget&&active.length<ACTIVE_CAP){
+  const furnitureBudget=!infiniteMode||
+   (job.item.shape!=='chair'&&job.item.shape!=='table')||
+   active.filter(a=>a.item.shape==='chair'||a.item.shape==='table').length
+    <C13_MAX_COMPOUND_FURNITURE;
+  if(slotFree&&compoundBudget&&furnitureBudget&&active.length<ACTIVE_CAP){
    spawnActor(job.item);pending.splice(i,1);
   }else if(elapsed-job.at>1.2){
    pending.splice(i,1);spawnSkipped++;
@@ -399,6 +409,7 @@ function reset(){
  lastOcclusionScan=-1e3;hazardMotionTicks=0;hazardSampleSpeed=0;
  totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
  prewarmedActors=0;prewarmedRocks=0;prewarmedLoot=0;
+ gauntletActors=0;gauntletChairs=0;gauntletLoot=0;
  barrelSpawned=0;beamSpawned=0;bouncerSpawned=0;complexSpawned=0;
  magnetTicks=0;magnetEngagements=0;magnetActive=false;
  arrivalCameraBlend=0;
@@ -420,6 +431,13 @@ function reset(){
    spawnActor(pre.item,pre.progress);prewarmedActors++;
    if(pre.item.kind==='rock')prewarmedRocks++;
    else prewarmedLoot++;
+  }
+  // Extra open-legged falling chairs intercept even quick upward rushes.
+  // Old C1.1 8-object warmstart counters are intentionally unchanged.
+  for(const pre of chairGauntlet(currentSpec.waveSeed,currentSpec.biome)){
+   spawnActor(pre.item,pre.progress);gauntletActors++;
+   if(pre.item.shape==='chair')gauntletChairs++;
+   if(pre.item.kind==='loot')gauntletLoot++;
   }
  }
  ui.loot.textContent='0';ui.dialog.classList.add('hidden');
@@ -506,8 +524,14 @@ function requestFlick(direction:'up'|'left'|'right'){
   message(chargeLevel>1?'WEIGHT x'+(body.mass/BASE_PLAYER_MASS).toFixed(1):'ROLL!');
  }else{
   sideFlicks++;
-  lastSideControlFraction=lateralControlFraction(chargeLevel);
-  pendingSideImpulse+=(direction==='left'?-1:1)*3.65*lastSideControlFraction;
+  if(infiniteMode){
+   const sign: -1|1=direction==='left'?-1:1;
+   lastSideControlFraction=sidewaysControl(chargeLevel);
+   pendingSideImpulse+=sideDodgeImpulse(sign,chargeLevel,body.linearVelocity.x);
+  }else{
+   lastSideControlFraction=lateralControlFraction(chargeLevel);
+   pendingSideImpulse+=(direction==='left'?-1:1)*3.65*lastSideControlFraction;
+  }
  }
 }
 let pointerStart:{x:number;y:number;id:number}|null=null;
@@ -580,7 +604,8 @@ app.on('update',(dt:number)=>{
    }
   }
   if(pendingSideImpulse){
-   body.applyImpulse(new Vec3(clamp(pendingSideImpulse,-7,7)*normalMassRatio,0,0));
+   body.applyImpulse(new Vec3(clamp(pendingSideImpulse,
+    infiniteMode?-8.5:-7,infiniteMode?8.5:7)*normalMassRatio,0,0));
    pendingSideImpulse=0;
   }
   // Capture is an actual mass-scaled Bullet force, only near the summit:
@@ -617,16 +642,18 @@ app.on('update',(dt:number)=>{
   const offSummit=summitApproach&&(
    Math.abs(p.x)>WALL_HALF_WIDTH+PLAYER_RADIUS+.55||
    p.y<(levelScene?.summitTop??0)-8||p.z< -41);
-  if(shouldRecover(p)&&(!summitApproach||offSummit)){
+  const fell=infiniteMode?shouldRecoverInfinite(p):shouldRecover(p);
+  if(fell&&(!summitApproach||offSummit)){
    falls++;
-   // Losing progress is meaningful: return to previous checkpoint,
-   // not to the current peak or an invisible perpetual magnet.
-   const checkpoint=Math.max(2,checkpointS-12);
+   // Infinite mode loses ALL climb progress; old C0.7 checkpoints remain.
+   // Wait for an actual visible fall rather than instantly rewinding at edge.
+   const checkpoint=infiniteMode?2:Math.max(2,checkpointS-12);
+   if(infiniteMode){maxProgress=2;checkpointS=2;}
    body.teleport(...onSlope(checkpoint));
    body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
    setCharge(0);peakChargeLevel=0;lastWeightSwipeTime=-100;
    pendingImpulse=0;pendingSideImpulse=0;swipeChain=0;
-   message('FELL — BACK DOWN!');
+   message(infiniteMode?'FELL — START FROM BOTTOM!':'FELL — BACK DOWN!');
   }
   if(infiniteMode&&summitContactPending)enterSummit();
   if(!infiniteMode&&frame.progress>=SLOPE_LENGTH){
@@ -645,7 +672,8 @@ app.on('update',(dt:number)=>{
  arrivalCameraBlend+=(summitBlend-arrivalCameraBlend)*clamp(tick*6,0,1);
  const offsets=summitCameraOffsets(arrivalCameraBlend);
  const cameraTarget=new Vec3(
-  p.x*.74,p.y-UP[1]*6+NORMAL[1]*10.2+offsets.vertical,
+  p.x*.74,p.y-UP[1]*6+NORMAL[1]*10.2+offsets.vertical+
+   lowCameraDrop(arrivalCameraBlend,lowCameraMode),
   p.z-UP[2]*6+NORMAL[2]*10.2+(offsets.behind-11.8));
  const now=camera.getPosition();
  const lag=now.distance(cameraTarget);
@@ -687,9 +715,17 @@ app.on('update',(dt:number)=>{
 app.start();
 declare global{interface Window{__CLIMBER_TEST__?:{
  snapshot:()=>Record<string,unknown>;approachSummit?:()=>void;
- approachMagnet?:()=>void
+ approachMagnet?:()=>void;testFall?:()=>void;testSwipe?:(direction:'left'|'right')=>void
 }}}
 window.__CLIMBER_TEST__={
+ testSwipe:testMode?(direction:'left'|'right')=>requestFlick(direction):undefined,
+ testFall:testMode?()=>{
+  if(phase!=='running'||body.type!=='dynamic')return;
+  // Push over an actual edge; let gravity make the long fall.
+  body.teleport(...onSlope(29,1.7,8.5));
+  body.linearVelocity=new Vec3(4,0,0);
+  body.angularVelocity=new Vec3();
+ }:undefined,
  approachMagnet:testMode?()=>{
   if(phase!=='running'||body.type!=='dynamic')return;
   // Test the real dynamic approach, rather than spoofing a collision.
@@ -720,6 +756,7 @@ window.__CLIMBER_TEST__={
   levelPhysicalObstacles:levelScene?.physicalEntities??0,
   stagedLevels,disposedLevels,summitEvents,onSummit,
   prewarmedActors,prewarmedRocks,prewarmedLoot,
+  gauntletActors,gauntletChairs,gauntletLoot,
   barrelSpawned,beamSpawned,bouncerSpawned,complexSpawned,
   magnetTicks,magnetEngagements,magnetActive,arrivalCameraBlend,
   activeComplexCount:active.filter(a=>isComplexShape(a.item.shape)).length,
@@ -738,7 +775,8 @@ window.__CLIMBER_TEST__={
  queued:pending.length,spawnSkipped,giantsSpawned,maxRockMass,heavyHits,
  furnitureSpawned,verifiedCompoundFurniture,minVerifiedGap,
  lightPropsSpawned,lightImpacts,ghostedActors,strongOcclusionEvents,
-  lastSideControlFraction,lightweightLateralControl:lateralControlFraction(0),
+  lastSideControlFraction,c13LateralFraction:sidewaysControl(chargeLevel),
+  lightweightLateralControl:lateralControlFraction(0),
   heavyweightLateralControl:lateralControlFraction(MAX_CHARGE),
  peakGhosted,cameraOcclusionChecks,hazardMotionTicks,hazardSampleSpeed,
  swipeOnly:true,playerMotorEnabled:false,
@@ -773,6 +811,8 @@ window.__CLIMBER_TEST__={
  maxPlayerMass:MAX_PLAYER_MASS,chargeLevel,peakChargeLevel,
  massUpdateCount,maximumChargedMass,speedCapActivations,
  chargedMediumImpacts,
+ cameraLowMode:lowCameraMode,
+ cameraDrop:lowCameraDrop(arrivalCameraBlend,lowCameraMode),
  cameraY:camera.getPosition().y,cameraZ:camera.getPosition().z,
  ballVelocityY:body.linearVelocity.y
 })};
