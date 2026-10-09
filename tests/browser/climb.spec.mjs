@@ -1,0 +1,26 @@
+import {test,expect} from '@playwright/test';
+const read=page=>page.evaluate(()=>window.__CLIMBER_TEST__?.snapshot());
+test('C0 real Ammo dynamic ball climbs real static wall, hazards and loot fall',async({page})=>{
+ test.setTimeout(75000);
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/');
+ await expect.poll(async()=>(await read(page))?.physicsLoaded,{timeout:25000}).toBe(true);
+ const initial=await read(page);
+ expect(initial.rigidbodyType).toBe('dynamic');
+ expect(initial.wallCollider).toBe('static');
+ expect(initial.groundCollider).toBe('static');
+ await page.locator('#start').click();
+ await expect.poll(async()=>(await read(page))?.y,{timeout:18000}).toBeGreaterThan(5);
+ const climbing=await read(page);
+ expect(climbing.spawnedTotal).toBeGreaterThan(1);
+ expect(climbing.ballVelocityY).toBeGreaterThan(-2);
+ await page.screenshot({path:'test-results/climber-climbing.png'});
+ await page.keyboard.press('ArrowRight');
+ await expect.poll(async()=>(await read(page))?.targetX).toBeGreaterThan(.1);
+ await expect.poll(async()=>(await read(page))?.maxHeight,{timeout:20000}).toBeGreaterThan(12);
+ const rising=await read(page);
+ expect(rising.attempts).toBe(1);
+ expect(rising.rigidbodyType).toBe('dynamic');
+ expect(rising.spawnedTotal).toBeGreaterThan(5);
+ expect(errors).toEqual([]);
+});
