@@ -107,3 +107,35 @@ test('C0.5: per-hazard mass-scaled slow descent without changing physics clock',
  expect(slow).toBeLessThan(classic*.65);
  expect(hazardBrakingForce(.14,4)).toBeLessThan(hazardBrakingForce(100,4));
 });
+
+import {BASE_PLAYER_MASS,MAX_PLAYER_MASS,MAX_CHARGE,
+ CHARGE_CHAIN_WINDOW,CHARGE_DECAY_DELAY,CHARGE_DECAY_STEP,
+ massForCharge,chargedBySwipe,chargeAfterIdle,
+ scaleImpulseForMass,cappedForwardSpeed} from '../src/Motion';
+test('C0.6: swipe weight is a bounded genuine mass multiplier, never a speed multiplier',()=>{
+ expect(BASE_PLAYER_MASS).toBe(1.4);
+ expect(MAX_PLAYER_MASS).toBeGreaterThan(5);
+ expect(massForCharge(0)).toBe(BASE_PLAYER_MASS);
+ expect(massForCharge(MAX_CHARGE)).toBe(MAX_PLAYER_MASS);
+ expect(massForCharge(999)).toBe(MAX_PLAYER_MASS);
+ expect(chargedBySwipe(0,100)).toBe(1);
+ expect(chargedBySwipe(1,.25)).toBe(2);
+ expect(chargedBySwipe(4,.25)).toBe(MAX_CHARGE);
+ expect(chargedBySwipe(4,CHARGE_CHAIN_WINDOW+.1)).toBe(1);
+ // A heavier Bullet ball must receive proportionally more impulse just
+ // to preserve its previous velocity gain. Charge increases collision mass.
+ const impulse=10;
+ expect(scaleImpulseForMass(impulse,MAX_PLAYER_MASS)/MAX_PLAYER_MASS)
+  .toBeCloseTo(impulse/BASE_PLAYER_MASS);
+ expect(cappedForwardSpeed(50)).toBe(PLAYER_MAX_FORWARD_SPEED);
+ expect(PLAYER_MAX_FORWARD_SPEED).toBeLessThan(17);
+});
+test('C0.6: charge expires without swipes and never survives loss of streak',()=>{
+ expect(CHARGE_DECAY_DELAY).toBeGreaterThan(1);
+ expect(CHARGE_DECAY_STEP).toBeGreaterThan(0);
+ expect(chargeAfterIdle(4,0)).toBe(4);
+ expect(chargeAfterIdle(4,CHARGE_DECAY_DELAY-.01)).toBe(4);
+ expect(chargeAfterIdle(4,CHARGE_DECAY_DELAY+.01)).toBe(3);
+ expect(chargeAfterIdle(4,CHARGE_DECAY_DELAY+CHARGE_DECAY_STEP+.01)).toBe(2);
+ expect(chargeAfterIdle(4,CHARGE_DECAY_DELAY+CHARGE_DECAY_STEP*4)).toBe(0);
+});

@@ -157,3 +157,54 @@ test('C0.4: actual compound Bullet furniture with leg gaps and light pushable de
  await page.screenshot({path:'test-results/c05-slow-furniture.png'});
  expect(errors).toEqual([]);
 });
+
+test('C0.6: real dynamic Bullet mass grows with each swipe and fades when idle',async({page})=>{
+ test.setTimeout(95000);
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/');
+ await expect.poll(async()=>(await read(page))?.physicsLoaded,{timeout:25000}).toBe(true);
+ let s=await read(page);
+ expect(s.playerMass).toBe(1.4);
+ expect(s.rigidbodyType).toBe('dynamic');
+ await page.locator('#start').click();
+ await page.keyboard.press('ArrowUp');
+ await expect.poll(async()=>(await read(page))?.appliedSwipeCount,{timeout:6500}).toBe(1);
+ s=await read(page);
+ expect(s.playerMass).toBeGreaterThan(s.basePlayerMass);
+ expect(s.chargeLevel).toBe(1);
+ const first=s.playerMass;
+ for(let i=0;i<3;i++){
+  await page.waitForTimeout(195);
+  await page.keyboard.press('ArrowUp');
+ }
+ await expect.poll(async()=>(await read(page))?.maximumChargedMass,{timeout:6500}).toBeGreaterThan(first+1);
+ const charged=await read(page);
+ expect(charged.playerMass).toBeGreaterThanOrEqual(first);
+ expect(charged.playerMass).toBeLessThanOrEqual(charged.maxPlayerMass);
+ expect(charged.maxForwardSpeed).toBeLessThanOrEqual(charged.maxAllowedForwardSpeed+.15);
+ expect(charged.playerMotorEnabled).toBe(false);
+ await page.screenshot({path:'test-results/c06-weighted-swipe-charge.png'});
+ await expect.poll(async()=>(await read(page))?.chargeLevel,
+   {timeout:18500,intervals:[250,450,700]}).toBe(0);
+ const idle=await read(page);
+ expect(idle.playerMass).toBe(idle.basePlayerMass);
+ await page.keyboard.press('KeyR');
+ await expect.poll(async()=>(await read(page))?.playerMass,{timeout:3500}).toBe(1.4);
+ expect((await read(page)).chargeLevel).toBe(0);
+ expect(errors).toEqual([]);
+});
+test('C0.6: a long pointer hold creates NO weight, a real up swipe charges exactly once',async({page})=>{
+ await page.goto('/');
+ await expect.poll(async()=>(await read(page))?.physicsLoaded,{timeout:25000}).toBe(true);
+ await page.locator('#start').click();
+ await page.mouse.move(180,590);await page.mouse.down();
+ await page.waitForTimeout(700);
+ const holding=await read(page);
+ expect(holding.playerMass).toBe(holding.basePlayerMass);
+ expect(holding.appliedSwipeCount).toBe(0);
+ await page.mouse.move(180,455,{steps:4});await page.mouse.up();
+ await expect.poll(async()=>(await read(page))?.appliedSwipeCount,{timeout:5500}).toBe(1);
+ const charged=await read(page);
+ expect(charged.playerMass).toBeGreaterThan(charged.basePlayerMass);
+ expect(charged.forwardFlicks).toBe(1);
+});
