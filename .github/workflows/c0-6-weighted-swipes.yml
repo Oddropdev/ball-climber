@@ -1,0 +1,41 @@
+name: C0.6 Weighted Swipes & Speed Control
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'index.html'
+      - '.github/workflows/c0-6-weighted-swipes.yml'
+      - 'docs/C0-6_HANDOFF.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  weighted-swipes:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'c0-6-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Mass, cooldown, impulse scaling, slow debris, pure geometry and build
+        run: |
+          npm run test
+          npm run build
+      - name: Real Chromium dynamic mass, capped uphill velocity, physical hazards and legacy regressions
+        run: npm run test:browser
+      - name: Windows playable artifact, handoff and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c0-6-heavy-swipe-owner-preview
+          path: |
+            dist/
+            test-results/
+            Start_Ball_Climber.cmd
+            tools/serve-preview.mjs
+            docs/C0-6_HANDOFF.md
+          if-no-files-found: warn
