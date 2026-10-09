@@ -1,0 +1,65 @@
+name: C1.0 Infinite Climb Foundation
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'index.html'
+      - 'docs/C1-0_HANDOFF.md'
+      - '.github/workflows/c1-0-infinite.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  infinite-climb:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'c1-0-infinite-climb-foundation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Validate 1000 level specs, cosmetic-only wallet, typecheck and build
+        run: |
+          npm run test
+          npx vitest run tests/c1-infinite.test.ts
+          npm run build
+      - name: Real C1 physics summit transitions, 1000 foundation and all C0 regressions
+        run: npm run test:browser
+      - name: Verify static preview has no raw user assets or secrets
+        run: |
+          test -s dist/index.html
+          test -f dist/ammo/ammo.wasm.wasm
+          if find dist -type f | grep -Ei '\.(zip|env|pem|key|p12|ps1|map)$|licensed|private'; then
+            echo 'Disallowed asset detected'
+            exit 1
+          fi
+          echo C1_0_PUBLIC_PREVIEW_CONTENT_PASS
+      - name: Publish green compiled static site to independent C1 preview branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Built from ${GITHUB_SHA}" > dist/BUILD_ORIGIN.txt
+          cd dist
+          git init -b main
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'C1.0 infinite climb phone preview, no paid art'
+          git remote add origin 'https://x-access-token:'"${GH_TOKEN}"'@github.com/Oddropdev/ball-climber.git'
+          git push origin HEAD:refs/heads/c1-0-mobile-static-preview
+      - name: Owner browser preview, screenshots, handoff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c1-0-infinite-climb-owner-preview
+          path: |
+            dist/
+            test-results/
+            docs/C1-0_HANDOFF.md
+            Start_Ball_Climber.cmd
+            tools/serve-preview.mjs
+          if-no-files-found: warn
