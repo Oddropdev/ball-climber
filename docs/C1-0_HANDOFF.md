@@ -30,9 +30,12 @@ physically completed runs.
 The original C0.7 default game at `/` is preserved unmodified in behavior.
 `?test=1` only with `?mode=infinite` unlocks a read-only snapshot and
 `approachSummit()`: the test uses a SHORT physics-based approach near the
-summit to avoid waiting through repeated 48m climbs. It does not trigger
-the completion callback directly and is never available in normal infinite
-mode. Never claim this as a natural from-start full run.
+summit to avoid waiting through repeated 48m climbs. It drops a REAL
+dynamic Bullet ball from a short height onto the actual horizontal platform;
+the production summit callback requires the engine's collisionstart event.
+No direct completion call or simulated contact. It is unavailable without
+both infinite and test flags, and **does not prove a natural 48m uphill
+approach**. That must be owner-verified or added as a separate full-playtest.
 
 ## Technical gates
 - Numeric reproduction / bounds check for levels 1–1000, different seeds,
