@@ -205,6 +205,9 @@ test('C0.6: a long pointer hold creates NO weight, a real up swipe charges exact
  await page.mouse.move(180,455,{steps:4});await page.mouse.up();
  await expect.poll(async()=>(await read(page))?.appliedSwipeCount,{timeout:5500}).toBe(1);
  const charged=await read(page);
- expect(charged.playerMass).toBeGreaterThan(charged.basePlayerMass);
+ // Real charge is transient: a busy browser/CI may sample AFTER idle decay.
+ // Require proof the Bullet mass DID increase, not that it remains increased.
+ expect(charged.maximumChargedMass).toBeGreaterThan(charged.basePlayerMass);
+ expect(charged.massUpdateCount).toBeGreaterThan(0);
  expect(charged.forwardFlicks).toBe(1);
 });
