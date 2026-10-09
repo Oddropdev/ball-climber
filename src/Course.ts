@@ -15,6 +15,9 @@ export const CHECKPOINT_GAP=12;
 export const MAX_ROCKS=50;
 export const MAX_LOOT=50;
 export const ACTIVE_CAP=MAX_ROCKS+MAX_LOOT;
+// Hard safety ceilings are unchanged. Typical active population is far lower.
+export const HAZARD_SOFT_TARGET=24;
+export const LOOT_SOFT_TARGET=30;
 export const EMITTER_S=SLOPE_LENGTH+2.5;
 export type V3=[number,number,number];
 export const UP:V3=[0,SIN_SLOPE,-COS_SLOPE];
@@ -48,7 +51,7 @@ export function makeRng(seed:number){
  };
 }
 export type ObjectKind='rock'|'loot';
-export type ObjectShape='sphere'|'box';
+export type ObjectShape='sphere'|'box'|'table'|'chair'|'light';
 export type Pattern='scatter'|'row'|'train'|'diagonal'|'loot-row'|'mixed'|
  'cluster'|'giant'|'spiral'|'loot-train'|'wall'|'burst';
 export type SpawnItem={
@@ -80,12 +83,12 @@ export function makeWave(seed:number,id:number):SpawnWave{
  if(!Number.isSafeInteger(id)||id<0)throw Error('wave index must be nonnegative');
  const pattern=patternFor(seed,id);
  const random=makeRng((seed^Math.imul(id+1,0x9e3779b9))>>>0);
- const count=pattern==='scatter'?3+Math.floor(random()*6):
-  pattern==='train'||pattern==='loot-train'?5+Math.floor(random()*6):
-  pattern==='row'||pattern==='loot-row'?7+Math.floor(random()*4):
-  pattern==='wall'?9+Math.floor(random()*4):
-  pattern==='giant'?3+Math.floor(random()*4):
-  5+Math.floor(random()*6);
+ const count=pattern==='scatter'?3+Math.floor(random()*4):
+  pattern==='train'||pattern==='loot-train'?4+Math.floor(random()*3):
+  pattern==='row'||pattern==='loot-row'?5+Math.floor(random()*3):
+  pattern==='wall'?4+Math.floor(random()*3):
+  pattern==='giant'?2+Math.floor(random()*3):
+  3+Math.floor(random()*5);
  const baseLane=(random()-.5)*5.8;
  const items:SpawnItem[]=[];
  for(let slot=0;slot<count;slot++){
@@ -93,15 +96,25 @@ export function makeWave(seed:number,id:number):SpawnWave{
   const kind:ObjectKind=pattern==='loot-row'||pattern==='loot-train'?'loot':
    pattern==='giant'&&slot===0?'rock':
    pattern==='mixed'||pattern==='burst'?slot%2?'loot':'rock':
-   random()<.46?'loot':'rock';
+   random()<.57?'loot':'rock';
   const giant=kind==='rock'&&requestedGiant;
-  const shape:ObjectShape=giant||random()<.51?'box':'sphere';
-  const width=giant?2.5+random()*2.4:
-   kind==='rock'?.72+random()*1.1:.52+random()*.65;
-  const height=giant?2.2+random()*2.5:
-   shape==='box'?width*(.55+random()*1.5):width;
-  const depth=giant?2+random()*2.4:
-   shape==='box'?width*(.4+random()*1.9):width;
+  // Furniture has open, physically traversable leg gaps rather than a
+  // single solid collision box. Many large shapes can pass over the player.
+  const furniture=kind==='rock'&&(giant||pattern==='wall'&&slot%2===0||
+    pattern==='cluster'&&slot===0||random()<.16);
+  const shape:ObjectShape=kind==='rock'&& !furniture&&random()<.30?'light':
+    furniture?(random()<.58?'table':'chair'):
+    random()<.5?'box':'sphere';
+  const width=shape==='table'?3.6+random()*1.5:
+    shape==='chair'?2.8+random()*.8:
+    giant?2.5+random()*1.8:
+    kind==='rock'?.7+random()*1.0:.5+random()*.6;
+  const height=shape==='table'?2.4+random()*.65:
+    shape==='chair'?2.8+random()*.55:
+    giant?2+random()*2:shape==='box'?width*(.55+random()*1.45):width;
+  const depth=shape==='table'?2.6+random()*.6:
+    shape==='chair'?2.6+random()*.65:
+    giant?2+random()*2:shape==='box'?width*(.45+random()*1.5):width;
   const lane=pattern==='row'||pattern==='loot-row'||pattern==='wall'?
    -4.35+8.7*(slot+.5)/count:
    pattern==='diagonal'||pattern==='spiral'?
@@ -124,7 +137,7 @@ export function makeWave(seed:number,id:number):SpawnWave{
   ];
   items.push({wave:id,slot,kind,shape,
    lane:Math.round(lane*1000)/1000,delay:Math.round(delay*1000)/1000,
-   size,mass:massFor(kind,size,giant),giant});
+   size,mass:shape==='light'?.14:massFor(kind,size,giant),giant});
  }
  return {id,pattern,items};
 }
