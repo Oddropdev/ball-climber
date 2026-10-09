@@ -5,29 +5,30 @@ import {levelSpec} from '../src/LevelSpec';
 import {warmStartItems,refineInfiniteItem} from '../src/ClimbPacing';
 import {makeWave} from '../src/Course';
 
-test('C1.2: magnet never acts below final ascent, off the track or on invalid mass',()=>{
- const p={x:0,y:41,z:-22},v={x:0,y:2,z:-4};
- expect(summitMagnetForce(20,p,v,42,.58,1.4)).toBe(null);
- expect(summitMagnetForce(MAGNET_START_PROGRESS-.1,p,v,42,.58,1.4)).toBe(null);
- expect(summitMagnetForce(46,{...p,x:7},v,42,.58,1.4)).toBe(null);
- expect(summitMagnetForce(46,{...p,y:28},v,42,.58,1.4)).toBe(null);
- expect(summitMagnetForce(46,p,v,42,.58,0)).toBe(null);
+test('C1.5: magnet engages only near relocated 60m real summit',()=>{
+ const p={x:0,y:52,z:-29},v={x:0,y:2,z:-4};
+ expect(MAGNET_START_PROGRESS).toBe(55.5);
+ expect(summitMagnetForce(20,p,v,52.77,.58,1.4)).toBe(null);
+ expect(summitMagnetForce(MAGNET_START_PROGRESS-.1,p,v,52.77,.58,1.4)).toBe(null);
+ expect(summitMagnetForce(58,{...p,x:7},v,52.77,.58,1.4)).toBe(null);
+ expect(summitMagnetForce(58,{...p,y:28},v,52.77,.58,1.4)).toBe(null);
+ expect(summitMagnetForce(58,p,v,52.77,.58,0)).toBe(null);
 });
-test('C1.2: magnetic capture physically pulls toward center and damps launch',()=>{
- const p={x:2,y:40,z:-23},v={x:1,y:9,z:-7};
- const m=summitMagnetForce(46,p,v,42,.58,1.4)!;
- expect(m).not.toBe(null);
+test('C1.5: relocated physical magnet brakes the lip and releases upward force above deck',()=>{
+ const top=52.77,p={x:2,y:51,z:-29},v={x:1,y:9,z:-7};
+ const m=summitMagnetForce(58,p,v,top,.58,1.4)!;
+ expect(m).not.toBeNull();
  expect(m[0]).toBeLessThan(0);
- expect(m[2]).toBeGreaterThan(0); // brake at the vertical lip
- const landing=summitMagnetForce(49,{x:2,y:43.5,z:-25},
-  {x:0,y:0,z:-1},42,.58,1.4)!;
- expect(landing[2]).toBeLessThan(0); // pull across once above the lip
- const overPad=summitMagnetForce(52,{x:0,y:45,z:-30.5},
-  {x:0,y:-1,z:0},42,.58,1.4)!;
- expect(overPad[1]).toBe(0); // gravity must allow physical deck contact
- const faster=summitMagnetForce(46,p,{...v,y:16},42,.58,1.4)!;
+ expect(m[2]).toBeGreaterThan(0); // true standoff braking at new vertical lip
+ const landing=summitMagnetForce(61,{x:2,y:54.5,z:-31},
+  {x:0,y:0,z:-1},top,.58,1.4)!;
+ expect(landing[2]).toBeLessThan(0);
+ const overPad=summitMagnetForce(64,{x:0,y:56,z:-36.5},
+  {x:0,y:-1,z:0},top,.58,1.4)!;
+ expect(overPad[1]).toBe(0);
+ const faster=summitMagnetForce(58,p,{...v,y:16},top,.58,1.4)!;
  expect(faster[1]).toBeLessThan(m[1]);
- const double=summitMagnetForce(46,p,v,42,.58,2.8)!;
+ const double=summitMagnetForce(58,p,v,top,.58,2.8)!;
  expect(double[0]).toBeCloseTo(m[0]*2);
  expect(double[1]).toBeCloseTo(m[1]*2);
  expect(double[2]).toBeCloseTo(m[2]*2);

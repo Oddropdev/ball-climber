@@ -1,7 +1,8 @@
 // C1.2: pre-existing live avalanche plus biome-specific obstacle identity.
 import {makeRng,massFor,type SpawnItem,type ObjectShape,type V3} from './Course';
 import type {Biome} from './LevelSpec';
-export const PREWARM_PROGRESS=[14,18,23,27,32,36,40,43] as const;
+import {INFINITE_SLOPE_LENGTH} from './InfiniteGeometry';
+export const PREWARM_PROGRESS=[17,22,29,36,42,48,53,57] as const;
 export const MYSTERY_BOX_HEIGHT=13.5;
 export const MYSTERY_BOX_SIZE=7.2;
 const PROFILE:Record<Biome,readonly ObjectShape[]>={
@@ -65,9 +66,10 @@ export function refineInfiniteItem(item:SpawnItem,seed:number,
  next.mass=massFor(next.kind,next.size,next.giant);
  return next;
 }
-export function smoothSummitBlend(progress:number,onSummit:boolean){
+export function smoothSummitBlend(progress:number,onSummit:boolean,
+ length=INFINITE_SLOPE_LENGTH){
  if(onSummit)return 1;
- const t=Math.min(1,Math.max(0,(progress-40)/8));
+ const t=Math.min(1,Math.max(0,(progress-(length-8))/8));
  return t*t*(3-2*t);
 }
 export function summitCameraOffsets(blend:number){

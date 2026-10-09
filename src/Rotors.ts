@@ -6,23 +6,37 @@ import {makeRng,onSlope,SLAB_THICKNESS} from './Course';
 import type {LevelSpec} from './LevelSpec';
 export type RotorKind='cross'|'hammer'|'platform';
 export type RotorSpec={id:number;kind:RotorKind;progress:number;speed:number;
- direction:-1|1;radius:number;phase:number};
+ direction:-1|1;radius:number;phase:number;lane?:number;pairRole?:'left'|'right'};
 export function rotorSpecs(index:number,seed:number):RotorSpec[]{
  if(index<4)return [];
  const r=makeRng((seed^0x18b4ddc2)>>>0);
- // Later stages gain a SECOND machine. No unlimited accumulating actors.
+ // Alternate center rotor lanes with a proper synchronized opposing
+ // shoulder pair: both upper blades sweep INWARDS toward the middle.
+ // Hard max 2 motors per level, even in the 1,000-level generator.
+ if(index>=5&&index%4===1){
+  const progress=33+(r()-.5)*3;
+  const phase=r()*Math.PI*2;
+  const speed=(10+r()*5)*Math.PI*2/60;
+  const radius=3.1+r()*.24;
+  return [
+   {id:0,kind:'cross',progress,speed,direction:-1,lane:-3.65,
+    radius,phase,pairRole:'left'},
+   {id:1,kind:'cross',progress,speed,direction:1,lane:3.65,
+    radius,phase:-phase,pairRole:'right'}
+  ];
+ }
  const count=index>=9?2:1;
  const kinds:RotorKind[]=['cross','hammer','platform'];
- const candidates=count===1?[24]:[18,34];
+ const candidates=count===1?[34]:[25,46];
  return Array.from({length:count},(_,id)=>({
   id,
   kind:kinds[(index+id)%kinds.length]!,
   progress:candidates[id]!+(r()-.5)*3,
-  // 10-16 rpm => a meaningful 3.75-6 second full revolution.
   speed:(10+r()*6)*Math.PI*2/60,
   direction:r()<.5?-1:1,
   radius:2.45+r()*.55,
-  phase:r()*Math.PI*2
+  phase:r()*Math.PI*2,
+  lane:0
  }));
 }
 type ColliderPart={name:string;offset:[number,number,number];
@@ -50,7 +64,7 @@ export function buildRotorField(app:AppBase,spec:LevelSpec,
  const incline=new Quat().setFromEulerAngles(60,0,0);
  const spinAxis=new Vec3(0,1,0);
  const nodes=plans.map(plan=>{
-  const center=onSlope(plan.progress,SLAB_THICKNESS/2+1.00,0);
+  const center=onSlope(plan.progress,SLAB_THICKNESS/2+1.00,plan.lane??0);
   const root=new Entity('rotor-'+spec.index+'-'+plan.id+'-'+plan.kind);
   root.setPosition(...center);
   const spin=new Quat().setFromAxisAngle(spinAxis,plan.phase*180/Math.PI);

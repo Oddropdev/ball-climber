@@ -17,9 +17,9 @@ test('C1.4: physical rotor layouts are deterministic, bounded and delayed to lat
   expect(a.length).toBeLessThanOrEqual(2);
   for(const r of a){
    expect(r.progress).toBeGreaterThan(13);
-   expect(r.progress).toBeLessThan(39);
+   expect(r.progress).toBeLessThan(53);
    expect(r.radius).toBeGreaterThanOrEqual(2.45);
-   expect(r.radius).toBeLessThan(3.01);
+   expect(r.radius).toBeLessThan(r.pairRole?3.4:3.01);
    expect(r.speed*60/(Math.PI*2)).toBeGreaterThanOrEqual(10);
    expect(r.speed*60/(Math.PI*2)).toBeLessThanOrEqual(16);
    const p=rotorParts(r);
