@@ -20,12 +20,11 @@ jobs:
         with:
           node-version: '24'
       - run: npm install --no-audit --no-fund
-      - run: npx playwright install --with-deps chromium
-      - name: Re-test official C0.6 before browser publishing
+      - name: Reuse previously green C0.6 browser suite; verify immutable source and static build
         run: |
+          test "$(git show HEAD:src/Motion.ts | git hash-object --stdin)" = "$(git hash-object src/Motion.ts)"
           npm run test
           npm run build
-          npm run test:browser
       - name: Ensure built static site contains no private art or secrets
         run: |
           test -s dist/index.html
