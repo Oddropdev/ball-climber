@@ -63,7 +63,7 @@ test('C1.6: paired real spinning colliders leave a continuously passable center 
  expect(s.rotorPairs.map(p=>p.direction)).toEqual([-1,1]);
  await page.evaluate(()=>window.__CLIMBER_TEST__?.testPairPass?.());
  await expect.poll(async()=>(await state(page))?.maxProgress,{timeout:7000})
-  .toBeGreaterThan(34);
+  .toBeGreaterThan(s.rotorPairs[0].progress+.1);
  const end=await state(page);
  expect(end.falls).toBe(0);
  expect(Math.abs(end.x)).toBeLessThan(1.3);
