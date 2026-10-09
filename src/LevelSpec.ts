@@ -21,10 +21,9 @@ const themes=[
 export function levelSpec(index:number):LevelSpec{
  if(!Number.isSafeInteger(index)||index<1||index>1_000_000)
   throw Error('level out of supported bounds');
- // World 1 keeps the current hero level; world 2 introduces Stormwall.
- // Later cycle through themes rather than exhausting a biome forever.
- const biomeIndex=index===1?0:index===2?1:
-  Math.floor((index-3)/12+2)%themes.length;
+ // Alternate silhouettes and hazard pools every level rather than
+ // repeating one biome for twelve almost identical climbs.
+ const biomeIndex=(index-1)%themes.length;
  const theme=themes[biomeIndex]!;
  const seed=(Math.imul(index,0x9e3779b9)^0xa51a1719)>>>0;
  const random=makeRng(seed);
