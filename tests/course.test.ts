@@ -1,3 +1,5 @@
+import {furnitureOpening,furnitureParts} from '../src/Furniture';
+import {blocksCameraSegment} from '../src/Visibility';
 import {test,expect} from 'vitest';
 import {SLOPE_DEGREES,SLOPE_LENGTH,SIN_SLOPE,COS_SLOPE,
  LEVEL_HEIGHT,UP,NORMAL,onSlope,slopePosition,nearestCheckpoint,
@@ -55,4 +57,30 @@ test('mass scales with object volume; rare giant is genuinely heavy, 50+50 caps'
  expect(MAX_ROCKS).toBe(50);
  expect(MAX_LOOT).toBe(50);
  expect(ACTIVE_CAP).toBe(100);
+});
+
+test('C0.4: furniture is physically hollow and real player fits under table/chair',()=>{
+ const parts=Array.from({length:120},(_,i)=>makeWave(1719,i)).flatMap(w=>w.items);
+ const furniture=parts.filter(p=>p.shape==='table'||p.shape==='chair');
+ expect(furniture.length).toBeGreaterThan(10);
+ for(const item of furniture){
+  const colliders=furnitureParts(item);
+  expect(colliders.length).toBe(item.shape==='table'?5:6);
+  expect(colliders.filter(x=>x.name.includes('leg')||x.name.includes('support'))).toHaveLength(4);
+  expect(furnitureOpening(item).height).toBeGreaterThan(1.16);
+  expect(furnitureOpening(item).width).toBeGreaterThan(2);
+ }
+ const light=parts.filter(p=>p.shape==='light');
+ expect(light.length).toBeGreaterThan(5);
+ expect(light.every(x=>x.mass===.14)).toBe(true);
+ expect(parts.some(x=>x.shape==='table')).toBe(true);
+ expect(parts.some(x=>x.shape==='chair')).toBe(true);
+});
+test('C0.4: soft body density below 50+50 hard cap; reliable visual-only occlusion ray',async()=>{
+ const {HAZARD_SOFT_TARGET,LOOT_SOFT_TARGET}=await import('../src/Course');
+ expect(HAZARD_SOFT_TARGET).toBeLessThan(30);
+ expect(LOOT_SOFT_TARGET).toBeLessThan(40);
+ expect(blocksCameraSegment([0,3,12],[0,1,0],[0,2,6],1.2)).toBe(true);
+ expect(blocksCameraSegment([0,3,12],[0,1,0],[4,2,6],1.2)).toBe(false);
+ expect(blocksCameraSegment([0,3,12],[0,1,0],[0,2,-6],2)).toBe(false);
 });
