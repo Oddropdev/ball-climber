@@ -33,6 +33,8 @@ function readSave():ClimbSave{
 let save=readSave(),currentSpec:LevelSpec=levelSpec(save.level);
 let levelScene:ClimbLevel|null=null;
 let stagedLevels=0,disposedLevels=0,summitEvents=0,onSummit=false;
+let summitContactEvents=0,summitContactPending=false;
+let lastSummitContactProgress=0,verifiedSummitArrivals=0;
 const canvas=document.getElementById('application-canvas') as HTMLCanvasElement;
 const $=(id:string)=>document.getElementById(id)!;
 const ui={
@@ -314,6 +316,17 @@ function reapActors(playerS:number,p:Vec3){
 let lastImpact=-100;
 player.collision!.on('collisionstart',(evt:{other:Entity})=>{
  if(phase!=='running')return;
+ if(infiniteMode&&levelScene&&evt.other===levelScene.summit){
+  const p=player.getPosition();
+  const progress=slopePosition(p).progress;
+  summitContactEvents++;
+  lastSummitContactProgress=progress;
+  if(body.type==='dynamic'&&progress>=SLOPE_LENGTH-1.5&&
+    p.y>=levelScene.summitTop+PLAYER_RADIUS-.35&&
+    p.z<-23.4&&Math.abs(p.x)<=WALL_HALF_WIDTH)
+   summitContactPending=true;
+  return;
+ }
  if(evt.other.name.startsWith('falling-rock-')&&elapsed-lastImpact>.13){
   contacts++;hits++;lastImpact=elapsed;
   const actor=active.find(a=>a.entity===evt.other);
@@ -331,7 +344,8 @@ function reset(){
  disposeActors();
  if(infiniteMode)stageLevel();
  if(body.type!=='dynamic')body.type='dynamic';
- onSummit=false;
+ onSummit=false;summitContactPending=false;
+ summitContactEvents=0;lastSummitContactProgress=0;
  ui.shop.hidden=true;ui.shopPanel.hidden=true;ui.summary.hidden=true;
  ui.start.hidden=false;root.classList.remove('summit');
  ui.start.textContent=infiniteMode?'CLIMB LEVEL '+save.level+' →':'CLIMB AGAIN →';
@@ -364,12 +378,15 @@ function reset(){
 }
 function enterSummit(){
  if(!infiniteMode||phase!=='running'||!levelScene)return;
- phase='summit';onSummit=true;summitEvents++;
+ // A genuine Bullet contact with this level's physical summit is required.
+ if(!summitContactPending||summitContactEvents<1)return;
+ summitContactPending=false;
+ phase='summit';onSummit=true;summitEvents++;verifiedSummitArrivals++;
  // Only after a real uphill approach, park on an actual Bullet plateau.
  const pos=player.getPosition();
  body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
  body.type='kinematic';
- body.teleport(clamp(pos.x,-3,3),levelScene.summitTop+PLAYER_RADIUS+.07,-26.5);
+ body.teleport(clamp(pos.x,-3,3),levelScene.summitTop+PLAYER_RADIUS+.07,-30.5);
  disposeActors();setCharge(0);peakChargeLevel=0;
  pendingImpulse=0;pendingSideImpulse=0;
  save=bankSummitLoot(save,loot);persist();
@@ -529,9 +546,15 @@ app.on('update',(dt:number)=>{
   maxForwardSpeed=Math.max(maxForwardSpeed,forwardVelocity(body.linearVelocity));
   maxProgress=Math.max(maxProgress,frame.progress);
   checkpointS=nearestCheckpoint(maxProgress);
-  streamSpawns();
+  if(!infiniteMode||frame.progress<45)streamSpawns();
+  else pending.length=0;
   reapActors(frame.progress,p);
-  if(shouldRecover(p)){
+  // Tilted slope recovery is invalid on a horizontal summit surface.
+  const summitApproach=infiniteMode&&frame.progress>=46;
+  const offSummit=summitApproach&&(
+   Math.abs(p.x)>WALL_HALF_WIDTH+PLAYER_RADIUS+.55||
+   p.y<(levelScene?.summitTop??0)-8||p.z< -41);
+  if(shouldRecover(p)&&(!summitApproach||offSummit)){
    falls++;
    // Losing progress is meaningful: return to previous checkpoint,
    // not to the current peak or an invisible perpetual magnet.
@@ -542,17 +565,13 @@ app.on('update',(dt:number)=>{
    pendingImpulse=0;pendingSideImpulse=0;swipeChain=0;
    message('FELL — BACK DOWN!');
   }
-  if(frame.progress>=SLOPE_LENGTH){
-   if(infiniteMode){
-    if(Math.abs(p.x)<=WALL_HALF_WIDTH+PLAYER_RADIUS&&
-      p.y>=levelScene!.summitTop-.75)enterSummit();
-   }else{
+  if(infiniteMode&&summitContactPending)enterSummit();
+  if(!infiniteMode&&frame.progress>=SLOPE_LENGTH){
    phase='complete';ui.title.innerHTML='SUMMIT <em>REACHED!</em>';
    ui.description.textContent='Loot '+loot+' · Impacts '+hits+' · Falls '+falls+
     ' · Flicks '+forwardFlicks+' · Time '+elapsed.toFixed(1)+'s. Climb again?';
    ui.start.textContent='CLIMB AGAIN →';ui.dialog.classList.remove('hidden');
     root.classList.remove('playing');
-   }
   }
   if(elapsed>messageUntil)ui.toast.classList.remove('show');
  }
@@ -622,6 +641,8 @@ window.__CLIMBER_TEST__={
   sceneEntities:levelScene?.sceneEntities??0,
   levelPhysicalObstacles:levelScene?.physicalEntities??0,
   stagedLevels,disposedLevels,summitEvents,onSummit,
+  summitContactEvents,summitContactPending,
+  lastSummitContactProgress,verifiedSummitArrivals,
   wallet:save.wallet,ownedSkins:[...save.owned],equippedSkin:save.equipped,
   shopVisible:!ui.shopPanel.hidden,levelLoot:loot,
  x:player.getPosition().x,y:player.getPosition().y,z:player.getPosition().z,
