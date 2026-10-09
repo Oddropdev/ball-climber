@@ -65,3 +65,35 @@ header strong{font-size:clamp(23px,5vw,32px);letter-spacing:-.045em}
  #toast{top:calc(58px + env(safe-area-inset-top));font-size:11px}
  #game.playing .score{font-size:16px;padding:3px 7px}
 }
+
+
+/* C1.0: summit choices only exist in opt-in infinite mode. */
+[hidden]{display:none!important}
+#level-badge{width:max-content;margin:7px 0 0;padding:5px 10px;
+ border:1px solid #ffffffaf;border-radius:13px;background:#ffffffdc;
+ font-size:10px;font-weight:900;letter-spacing:.06em;color:#436189}
+#game.playing #level-badge{font-size:9px;padding:4px 8px}
+#summit-summary{background:#f8f2ff;border-radius:11px;padding:9px;
+ margin:8px 0;font-size:13px;font-weight:850;color:#735095}
+#shop-button,#shop-back{pointer-events:auto;border:0;background:#f6d49a;
+ color:#67436d;border-radius:13px;min-height:46px;padding:8px 14px;
+ font-size:15px;font-weight:900;width:100%;cursor:pointer;margin-top:10px}
+#shop-panel{pointer-events:auto}
+#shop-credits{color:#8e641f;font-weight:900;font-size:13px;margin:8px 0}
+#shop-items{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+ gap:7px}
+.skin-item{border:2px solid #efedf5;border-radius:12px;
+ padding:8px 5px;background:#fff;cursor:pointer;
+ display:flex;flex-direction:column;align-items:center;gap:3px;
+ font-size:11px;font-weight:800;color:#484463}
+.skin-item:disabled{opacity:.5;cursor:default}
+.skin-swatch{width:32px;height:32px;border:3px solid #ffffff;
+ box-shadow:0 2px 7px #53618450;border-radius:50%}
+.skin-item small{margin:0!important;font-size:10px}
+#game.infinite #dialog{max-height:calc(100dvh - 24px);overflow-y:auto}
+#game.summit #dialog{top:49%}
+@media(max-height:550px){
+ #game.summit #dialog{max-width:min(95vw,480px)}
+ #shop-items{grid-template-columns:repeat(4,minmax(0,1fr))}
+ .skin-swatch{width:22px;height:22px}
+}
