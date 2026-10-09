@@ -18,6 +18,22 @@ export function buildClimbLevel(spec:LevelSpec,shape:Shape,
  const platform=add(shape('level-'+spec.index+'-summit-platform','box',
   [0,summitTop-.38,-30.5],[spec.summitWidth,.76,14],
   palette.road,'static'));
+ // Make the previously featureless summit read as a deliberate landing
+ // deck. All trims/markers are decorative: only 'platform' is the static
+ // Bullet landing collider. Neither the camera nor ball hits fake railings.
+ for(let i=0;i<5;i++){
+  const z=-25.2-i*2.65;
+  add(shape('level-'+spec.index+'-summit-runout-'+i,'box',
+   [0,summitTop+.032,z],[spec.summitWidth-.7,.055,.16],
+   i%2?palette.marker:palette.trim,false));
+ }
+ for(const dir of [-1,1]){
+  for(let i=0;i<3;i++){
+   add(shape('level-'+spec.index+'-summit-edge-'+dir+'-'+i,'sphere',
+    [dir*(spec.summitWidth/2-.25),summitTop+.17,-25.4-i*4.5],
+    [.34,.34,.34],palette.marker,false));
+  }
+ }
  for(const direction of [-1,1]){
   add(shape('level-'+spec.index+'-summit-wing-'+direction,'sphere',
    [direction*(spec.summitWidth/2+1.8),summitTop-2,-29.7],
