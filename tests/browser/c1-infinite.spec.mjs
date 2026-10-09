@@ -16,7 +16,7 @@ test('C1.0: real Level1 summit -> skin shop -> Level2/3 with clean Bullet teardo
  expect(first.biome).toBe('rocky');
  expect(first.summitPlatformType).toBe('static');
  expect(first.sceneEntities).toBeGreaterThan(8);
- expect(first.levelPhysicalObstacles).toBeGreaterThan(2);
+ expect(first.levelPhysicalObstacles).toBe(1); // no obstructive edge balls
  await page.locator('#start').click();
  expect((await state(page)).rigidbodyType).toBe('dynamic');
  await physicsSummit(page);
