@@ -5,7 +5,7 @@ import {createPhysicsGame,material} from './Physics';
 import {makeFurniture,furnitureOpening} from './Furniture';
 import {makeFallingObstacle,isComplexShape} from './ObstacleShapes';
 import {summitMagnetForce} from './SummitMagnet';
-import {buildRotorField,type RotorField} from './Rotors';
+import {buildRotorField,pairedRotorClearance,type RotorField} from './Rotors';
 import {rushPack} from './RushPack';
 import {buildBaseCamp,baseSpawn,shouldPurgeBaseHazard,
  needsBaseSafetyCatch,baseCameraTransition,HAZARD_KILL_PROGRESS,BASE_DECK_TOP,
@@ -780,7 +780,7 @@ declare global{interface Window{__CLIMBER_TEST__?:{
  snapshot:()=>Record<string,unknown>;approachSummit?:()=>void;
  approachMagnet?:()=>void;testFall?:()=>void;testSwipe?:(direction:'left'|'right')=>void;
  testRotor?:()=>void;testPurge?:()=>void;testBaseEdge?:()=>void;
- testGoSlope?:()=>void
+ testGoSlope?:()=>void;testPairPass?:()=>void
 }}}
 window.__CLIMBER_TEST__={
  testPurge:testMode?()=>{
@@ -792,6 +792,16 @@ window.__CLIMBER_TEST__={
    SLAB_THICKNESS/2+Math.max(...actor.item.size)*.65+1.1,0));
   actor.entity.rigidbody!.linearVelocity=new Vec3();
   actor.entity.rigidbody!.angularVelocity=new Vec3();
+ }:undefined,
+ testPairPass:testMode?()=>{
+  const plans=rotorField?.specs;
+  if(phase!=='running'||!plans||pairedRotorClearance(plans)===null)return;
+  // Test-only controlled empty road: prove the REAL dynamic ball can pass
+  // through the swept center corridor of both kinematic rotor colliders.
+  disposeActors();
+  body.teleport(...onSlope(plans[0]!.progress-2.1));
+  body.linearVelocity=new Vec3(0,12*SIN_SLOPE,-12*COS_SLOPE);
+  body.angularVelocity=new Vec3();
  }:undefined,
  testGoSlope:testMode?()=>{
   if(phase!=='running')return;
@@ -858,7 +868,9 @@ window.__CLIMBER_TEST__={
   rotorCount:rotorField?.count??0,
   rotorKinds:rotorField?.specs.map(p=>p.kind)??[],
   rotorPairs:rotorField?.specs.map(p=>({lane:p.lane??0,
-   direction:p.direction,role:p.pairRole??null,speed:p.speed}))??[],
+   direction:p.direction,role:p.pairRole??null,speed:p.speed,
+   radius:p.radius}))??[],
+  rotorPassageWidth:rotorField?pairedRotorClearance(rotorField.specs):null,
   rotorTypes:rotorField?.types??[],
   baseCampExists:!!baseCamp,baseDeckType:baseCamp?.deck.rigidbody?.type??null,
   baseCampPhysicalCount:baseCamp?.physicalCount??0,
