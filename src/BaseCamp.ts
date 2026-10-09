@@ -40,9 +40,12 @@ export function needsBaseSafetyCatch(pos:{x:number;y:number;z:number}){
 export function baseCameraTransition(pos:{x:number;y:number;z:number}){
  const progress=slopePosition(pos).progress;
  const slopeBlend=Math.max(0,Math.min(1,(progress-3)/3));
- const camera:V3=[pos.x*.78,BASE_DECK_TOP+1.55,
-  Math.min(BASE_DECK_BACK_Z-1.0,pos.z+2.2)];
- return {slopeBlend,camera};
+ // Place the camera just ABOVE the rear rail so it can see the ball
+ // without clipping the pad, looking back UP the 60-degree slope.
+ const camera:V3=[pos.x*.78,BASE_DECK_TOP+5.4,
+  pos.z+5.8];
+ const focus:V3=[pos.x*.94,pos.y+.45,pos.z-1.5];
+ return {slopeBlend,camera,focus};
 }
 export function buildBaseCamp(shape:Shape,
  mats:{road:StandardMaterial;trim:StandardMaterial;marker:StandardMaterial}){
