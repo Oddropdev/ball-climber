@@ -29,6 +29,8 @@ jobs:
           npm run test
           npx vitest run tests/c1-infinite.test.ts tests/c12-magnet.test.ts
           npm run build
+      - name: C1.2 early physical magnet landing gate
+        run: npx playwright test tests/browser/c12-magnet.spec.mjs
       - name: Original C0-C1 browser suite plus physical summit magnet and obstacle profiles
         run: npm run test:browser
       - name: No paid source assets or secrets in the public build
