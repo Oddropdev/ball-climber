@@ -25,9 +25,13 @@ export function isInsideBaseCamp(pos:{x:number;y:number;z:number}){
   pos.y>=BASE_DECK_TOP-1.4&&pos.y<=BASE_DECK_TOP+4.5;
 }
 export function needsBaseSafetyCatch(pos:{x:number;y:number;z:number}){
- // Only a last-resort safeguard against high impulse flight OVER a
- // guard. Normal gameplay uses physically colliding deck + rails.
- return isInsideBaseCamp(pos)&&Math.abs(pos.x)>BASE_DECK_WIDTH/2+.72;
+ // Extra insurance for extreme Bullet impulses over/behind the rail.
+ // Leave the uphill opening unguarded once the ball is on the slope.
+ const nearCamp=pos.z>BASE_DECK_FRONT_Z-1.1&&
+  pos.z<BASE_DECK_BACK_Z+3.0;
+ if(!nearCamp)return false;
+ return Math.abs(pos.x)>BASE_DECK_WIDTH/2+.72||
+  pos.z>BASE_DECK_BACK_Z+.65||pos.y<BASE_DECK_TOP-.85;
 }
 
 // Rest pose prevents the steep chase camera from clipping UNDER the
