@@ -3,6 +3,10 @@
 import {Entity,Vec3,Color,Texture,PIXELFORMAT_RGBA8,BLEND_NORMAL,type MeshInstance,type Material} from 'playcanvas';
 import {createPhysicsGame,material} from './Physics';
 import {makeFurniture,furnitureOpening} from './Furniture';
+import {makeHollowFrame,isHollowShape,frameOpening} from './HollowFrames';
+import {directedWave,sectionPlan,sectionAt,frameSetpieces,
+ type SectionRole} from './ClimbDirector';
+import {introPose,INTRO_SECONDS,shouldShowIntro} from './IntroTour';
 import {makeFallingObstacle,isComplexShape} from './ObstacleShapes';
 import {summitMagnetForce} from './SummitMagnet';
 import {buildRotorField,pairedRotorClearance,type RotorField} from './Rotors';
@@ -38,10 +42,12 @@ import {SKINS,safeSave,purchaseSkin,bankSummitLoot,unlockNextLevel,
 import {warmStartItems,refineInfiniteItem,smoothSummitBlend,
  summitCameraOffsets,MYSTERY_BOX_HEIGHT,MYSTERY_BOX_SIZE} from './ClimbPacing';
 import './style.css';
-type Phase='ready'|'running'|'summit'|'complete'|'error';
+type Phase='ready'|'intro'|'running'|'summit'|'complete'|'error';
 const params=new URL(window.location.href).searchParams;
 const infiniteMode=params.get('mode')==='infinite';
 const testMode=infiniteMode&&params.get('test')==='1';
+const introEnabled=infiniteMode&&params.get('intro')!=='off'&&
+ (!testMode||params.get('intro')==='1');
 const lowCameraMode=infiniteMode&&params.get('camera')!=='classic';
 const closeCameraMode=lowCameraMode&&params.get('camera')!=='low';
 const steepChaseMode=closeCameraMode&&params.get('camera')!=='close';
@@ -58,6 +64,11 @@ let levelScene:ClimbLevel|null=null;
 let rotorField:RotorField|null=null;
 let baseCamp:BaseCamp|null=null;
 let hazardPurged=0,baseSafetyCatches=0;
+let shownIntroLevel=0,introElapsed=0,introCount=0,introSkips=0;
+let frameActors=0,frameOpenings:number[]=[];
+let activeSectionRole:SectionRole='open';
+let waveSections:Record<SectionRole,number>={
+ open:0,weave:0,setpiece:0,frames:0,pile:0,recovery:0};
 let noveltyActors=0,noveltyShapes:string[]=[];
 let summitSwipeBlocked=0,summitOvershootRecoveries=0;
 let stagedLevels=0,disposedLevels=0,summitEvents=0,onSummit=false;
@@ -201,7 +212,7 @@ function stageLevel(){
  currentSpec=levelSpec(save.level);
  const p=paletteFor(currentSpec);
  levelScene=buildClimbLevel(currentSpec,shape,p);stagedLevels++;
- baseCamp=buildBaseCamp(shape,{road:p.road,trim:p.trim,marker:p.marker});
+ baseCamp=buildBaseCamp(shape,{road:p.road,trim:p.trim,marker:p.marker,island:p.island});
  rotorField=buildRotorField(app,currentSpec,p.trim,p.marker);
  for(const v of (ramp.children[0] as Entity).render!.meshInstances)v.material=p.road;
  for(const marker of ledges)
@@ -292,7 +303,9 @@ function spawnActor(item:SpawnItem,earlyProgress?:number){
   (item.shape==='sphere'?mats.loot:mats.lootBox):
   (item.shape==='sphere'?(item.slot%2?mats.rockDark:mats.rock):
    item.giant?mats.rockDark:item.size[1]>item.size[0]?mats.rectangle:mats.crate);
- const e=item.shape==='table'||item.shape==='chair'?
+ const e=isHollowShape(item.shape)?
+  makeHollowFrame(app,item,position,mats.crate,mats.gold):
+  item.shape==='table'||item.shape==='chair'?
   makeFurniture(app,item,position,
     item.shape==='table'?mats.furniture:mats.chair):
   isComplexShape(item.shape)?
@@ -319,7 +332,7 @@ function spawnActor(item:SpawnItem,earlyProgress?:number){
  if(item.shape==='barrel')barrelSpawned++;
  if(item.shape==='beam')beamSpawned++;
  if(item.shape==='bouncer')bouncerSpawned++;
- if(isComplexShape(item.shape))complexSpawned++;
+ if(isComplexShape(item.shape)||isHollowShape(item.shape))complexSpawned++;
  active.push({item,entity:e,bornAt:elapsed,original:collectRenders(e),ghostTier:0});
  if(item.shape==='table'||item.shape==='chair'){
   furnitureSpawned++;
@@ -348,12 +361,18 @@ function streamSpawns(){
  if(elapsed>=spawnNextAt&&pending.length<58){
   const wave=makeWave(infiniteMode?currentSpec.waveSeed:WAVE_SEED,spawnWaveIndex++);
   patterns[wave.pattern]++;spawnWaves++;
-  for(const item of wave.items)pending.push({
-   item:infiniteMode?refineInfiniteItem(item,currentSpec.waveSeed,currentSpec.biome):item,
-   at:elapsed+item.delay});
-  // Lower the physical danger density but preserve visually rich mixed bursts.
-  spawnNextAt=elapsed+(infiniteMode?
-   (spawnWaves%5===0?.78:1.02):(spawnWaves%5===0?.78:1.18));
+  const dir=infiniteMode?directedWave({...wave,items:wave.items.map(item=>
+   refineInfiniteItem(item,currentSpec.waveSeed,currentSpec.biome))},
+   currentSpec.waveSeed,slopePosition(player.getPosition()).progress,
+   currentSpec.biome):null;
+  if(dir){
+   activeSectionRole=dir.role;waveSections[dir.role]++;
+  }
+  for(const item of (dir?.items??wave.items))
+   pending.push({item,at:elapsed+item.delay});
+  // 1-4 readable actors per wave with genuine spatial recovery windows.
+  spawnNextAt=elapsed+(dir?.gap??
+   (spawnWaves%5===0?.78:1.18));
  }
  pending.sort((a,b)=>a.at-b.at);
  for(let i=0;i<pending.length;){
@@ -364,8 +383,10 @@ function streamSpawns(){
   const slotFree=job.item.kind==='rock'?liveRocks<limit:liveLoot<limit;
   // Complex compounds carry multiple real Bullet collision primitives.
   // Keep a strict active budget on low-end Android devices.
-  const compoundBudget=!isComplexShape(job.item.shape)||
-   active.filter(a=>isComplexShape(a.item.shape)).length<6;
+  const compoundBudget=!isComplexShape(job.item.shape)&&
+   !isHollowShape(job.item.shape)||
+   active.filter(a=>isComplexShape(a.item.shape)||
+    isHollowShape(a.item.shape)).length<7;
   const furnitureBudget=!infiniteMode||
    (job.item.shape!=='chair'&&job.item.shape!=='table')||
    active.filter(a=>a.item.shape==='chair'||a.item.shape==='table').length
