@@ -18,7 +18,8 @@ export function sectionPlan(seed:number):Section[]{
  }));
 }
 export function sectionAt(seed:number,progress:number):Section{
- return sectionPlan(seed).find(x=>progress>=x.start&&progress<x.end)!
+ const p=Math.max(0,Math.min(59.999,Number.isFinite(progress)?progress:0));
+ return sectionPlan(seed).find(x=>p>=x.start&&p<x.end)!
   ??sectionPlan(seed)[5]!;
 }
 export type DirectedWave={items:SpawnItem[];gap:number;role:SectionRole};
