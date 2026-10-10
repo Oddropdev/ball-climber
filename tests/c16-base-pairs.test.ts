@@ -3,6 +3,7 @@ import {levelSpec} from '../src/LevelSpec';
 import {PLAYER_RADIUS,onSlope,slopePosition} from '../src/Course';
 import {BASE_DECK_TOP,BASE_DECK_FRONT_Z,BASE_DECK_BACK_Z,
  BASE_DECK_WIDTH,BASE_GUARD_HEIGHT,HAZARD_KILL_PROGRESS,
+ START_PAD_BACK_Z,START_PAD_WIDTH,
  baseSpawn,shouldPurgeBaseHazard,isInsideBaseCamp,needsBaseSafetyCatch,
  baseCameraTransition} from '../src/BaseCamp';
 import {rotorSpecs,pairedRotorClearance,rotorParts} from '../src/Rotors';
@@ -16,7 +17,9 @@ test('C1.6: base resting floor has slope join, guards and no hazard crossing',()
  const spawn=baseSpawn();
  expect(spawn[1]).toBeGreaterThan(BASE_DECK_TOP+PLAYER_RADIUS);
  expect(spawn[2]).toBeGreaterThan(3);
- expect(spawn[2]).toBeLessThan(BASE_DECK_BACK_Z);
+ expect(spawn[2]).toBeGreaterThan(BASE_DECK_BACK_Z);
+ expect(spawn[2]).toBeLessThan(START_PAD_BACK_Z);
+ expect(START_PAD_WIDTH).toBeLessThan(BASE_DECK_WIDTH);
  expect(isInsideBaseCamp({x:spawn[0],y:spawn[1],z:spawn[2]})).toBe(true);
  expect(needsBaseSafetyCatch({x:0,y:spawn[1],z:spawn[2]})).toBe(false);
  expect(needsBaseSafetyCatch({x:6,y:spawn[1],z:spawn[2]})).toBe(true);

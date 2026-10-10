@@ -11,7 +11,10 @@ export const BASE_DECK_BACK_Z=7.4;
 export const BASE_DECK_WIDTH=10.4;
 export const BASE_GUARD_HEIGHT=3.4;
 export const HAZARD_KILL_PROGRESS=1.25;
-export const BASE_SPAWN_Z=4.0;
+export const BASE_SPAWN_Z=11.35;
+export const START_PAD_WIDTH=4.6;
+export const START_PAD_FRONT_Z=9.2;
+export const START_PAD_BACK_Z=13.6;
 export function baseSpawn():V3{
  return [0,BASE_DECK_TOP+PLAYER_RADIUS+.055,BASE_SPAWN_Z];
 }
@@ -21,17 +24,19 @@ export function shouldPurgeBaseHazard(pos:{x:number;y:number;z:number}){
 }
 export function isInsideBaseCamp(pos:{x:number;y:number;z:number}){
  return pos.z>=BASE_DECK_FRONT_Z-.2&&
-  pos.z<=BASE_DECK_BACK_Z+.25&&
+  pos.z<=START_PAD_BACK_Z+.35&&
   pos.y>=BASE_DECK_TOP-1.4&&pos.y<=BASE_DECK_TOP+4.5;
 }
 export function needsBaseSafetyCatch(pos:{x:number;y:number;z:number}){
  // Extra insurance for extreme Bullet impulses over/behind the rail.
  // Leave the uphill opening unguarded once the ball is on the slope.
  const nearCamp=pos.z>BASE_DECK_FRONT_Z-1.1&&
-  pos.z<BASE_DECK_BACK_Z+3.0;
+  pos.z<START_PAD_BACK_Z+2.0;
  if(!nearCamp)return false;
- return Math.abs(pos.x)>BASE_DECK_WIDTH/2+.72||
-  pos.z>BASE_DECK_BACK_Z+.65||pos.y<BASE_DECK_TOP-.85;
+ const protectedHalfWidth=pos.z>=START_PAD_FRONT_Z-.7?
+  START_PAD_WIDTH/2+.68:BASE_DECK_WIDTH/2+.72;
+ return Math.abs(pos.x)>protectedHalfWidth||
+  pos.z>START_PAD_BACK_Z+.65||pos.y<BASE_DECK_TOP-.85;
 }
 
 // Rest pose prevents the steep chase camera from clipping UNDER the
@@ -48,7 +53,8 @@ export function baseCameraTransition(pos:{x:number;y:number;z:number}){
  return {slopeBlend,camera,focus};
 }
 export function buildBaseCamp(shape:Shape,
- mats:{road:StandardMaterial;trim:StandardMaterial;marker:StandardMaterial}){
+ mats:{road:StandardMaterial;trim:StandardMaterial;marker:StandardMaterial;
+ island?:StandardMaterial}){
  const nodes:Entity[]=[];
  const add=(e:Entity)=>{nodes.push(e);return e;};
  const depth=BASE_DECK_BACK_Z-BASE_DECK_FRONT_Z;
@@ -69,8 +75,33 @@ export function buildBaseCamp(shape:Shape,
    [1.25,BASE_GUARD_HEIGHT,.58],mats.trim,'static'));
  }
  add(shape('safe-base-rear-guard','box',
-  [0,BASE_DECK_TOP+BASE_GUARD_HEIGHT/2,BASE_DECK_BACK_Z+.24],
-  [BASE_DECK_WIDTH+1.0,BASE_GUARD_HEIGHT,.55],mats.trim,'static'));
+  [0,BASE_DECK_TOP+BASE_GUARD_HEIGHT/2,START_PAD_BACK_Z+.24],
+  [START_PAD_WIDTH+.7,BASE_GUARD_HEIGHT,.55],mats.trim,'static'));
+ // C1.8: second, smaller, dedicated starting pad physically connects
+ // to the old wide safe lower plaza with a short protected runway.
+ const bridgeFront=BASE_DECK_BACK_Z-.4,bridgeBack=START_PAD_FRONT_Z+.5;
+ const bridgeZ=(bridgeFront+bridgeBack)/2;
+ const bridgeDepth=bridgeBack-bridgeFront;
+ add(shape('starter-bridge-floor','box',
+  [0,BASE_DECK_TOP-thickness/2,bridgeZ],
+  [START_PAD_WIDTH,thickness,bridgeDepth],mats.road,'static'));
+ const padZ=(START_PAD_FRONT_Z+START_PAD_BACK_Z)/2;
+ const starterPad=add(shape('starter-personal-pad','box',
+  [0,BASE_DECK_TOP-thickness/2,padZ],
+  [START_PAD_WIDTH,thickness,START_PAD_BACK_Z-START_PAD_FRONT_Z],
+  mats.island??mats.road,'static'));
+ for(const side of [-1,1]){
+  add(shape('starter-bridge-side-'+side,'box',
+   [side*(START_PAD_WIDTH/2+.22),BASE_DECK_TOP+BASE_GUARD_HEIGHT/2,bridgeZ],
+   [.44,BASE_GUARD_HEIGHT,bridgeDepth],mats.trim,'static'));
+  add(shape('starter-pad-side-'+side,'box',
+   [side*(START_PAD_WIDTH/2+.22),BASE_DECK_TOP+BASE_GUARD_HEIGHT/2,padZ],
+   [.44,BASE_GUARD_HEIGHT,START_PAD_BACK_Z-START_PAD_FRONT_Z],
+   mats.trim,'static'));
+ }
+ add(shape('starter-start-line','box',
+  [0,BASE_DECK_TOP+.031,START_PAD_FRONT_Z+.36],
+  [START_PAD_WIDTH-.45,.06,.18],mats.marker,false));
  // Fixed no-collision floor markings, not fake transparent guardrails.
  for(let i=0;i<3;i++){
   add(shape('safe-base-runway-'+i,'box',
@@ -81,8 +112,9 @@ export function buildBaseCamp(shape:Shape,
  add(shape('base-hazard-purge-warning','box',strip,
   [BASE_DECK_WIDTH-.6,.035,.25],mats.marker,false,SLOPE_DEGREES));
  return {
-  deck, get entityCount(){return nodes.length;},
+  deck,starterPad,get entityCount(){return nodes.length;},
   get physicalCount(){return 6;},
+  get starterPhysicalCount(){return 6;},
   dispose(){for(const node of nodes)node.destroy();nodes.length=0;}
  };
 }

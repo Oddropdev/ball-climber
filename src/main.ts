@@ -3,6 +3,10 @@
 import {Entity,Vec3,Color,Texture,PIXELFORMAT_RGBA8,BLEND_NORMAL,type MeshInstance,type Material} from 'playcanvas';
 import {createPhysicsGame,material} from './Physics';
 import {makeFurniture,furnitureOpening} from './Furniture';
+import {makeHollowFrame,isHollowShape,frameOpening} from './HollowFrames';
+import {directedWave,sectionPlan,sectionAt,frameSetpieces,
+ type SectionRole} from './ClimbDirector';
+import {introPose,INTRO_SECONDS,shouldShowIntro} from './IntroTour';
 import {makeFallingObstacle,isComplexShape} from './ObstacleShapes';
 import {summitMagnetForce} from './SummitMagnet';
 import {buildRotorField,pairedRotorClearance,type RotorField} from './Rotors';
@@ -38,10 +42,12 @@ import {SKINS,safeSave,purchaseSkin,bankSummitLoot,unlockNextLevel,
 import {warmStartItems,refineInfiniteItem,smoothSummitBlend,
  summitCameraOffsets,MYSTERY_BOX_HEIGHT,MYSTERY_BOX_SIZE} from './ClimbPacing';
 import './style.css';
-type Phase='ready'|'running'|'summit'|'complete'|'error';
+type Phase='ready'|'intro'|'running'|'summit'|'complete'|'error';
 const params=new URL(window.location.href).searchParams;
 const infiniteMode=params.get('mode')==='infinite';
 const testMode=infiniteMode&&params.get('test')==='1';
+const introEnabled=infiniteMode&&params.get('intro')!=='off'&&
+ (!testMode||params.get('intro')==='1');
 const lowCameraMode=infiniteMode&&params.get('camera')!=='classic';
 const closeCameraMode=lowCameraMode&&params.get('camera')!=='low';
 const steepChaseMode=closeCameraMode&&params.get('camera')!=='close';
@@ -58,6 +64,11 @@ let levelScene:ClimbLevel|null=null;
 let rotorField:RotorField|null=null;
 let baseCamp:BaseCamp|null=null;
 let hazardPurged=0,baseSafetyCatches=0;
+let shownIntroLevel=0,introElapsed=0,introCount=0,introSkips=0;
+let frameActors=0,frameOpenings:number[]=[];
+let activeSectionRole:SectionRole='open';
+let waveSections:Record<SectionRole,number>={
+ open:0,weave:0,setpiece:0,frames:0,pile:0,recovery:0};
 let noveltyActors=0,noveltyShapes:string[]=[];
 let summitSwipeBlocked=0,summitOvershootRecoveries=0;
 let stagedLevels=0,disposedLevels=0,summitEvents=0,onSummit=false;
@@ -201,7 +212,7 @@ function stageLevel(){
  currentSpec=levelSpec(save.level);
  const p=paletteFor(currentSpec);
  levelScene=buildClimbLevel(currentSpec,shape,p);stagedLevels++;
- baseCamp=buildBaseCamp(shape,{road:p.road,trim:p.trim,marker:p.marker});
+ baseCamp=buildBaseCamp(shape,{road:p.road,trim:p.trim,marker:p.marker,island:p.island});
  rotorField=buildRotorField(app,currentSpec,p.trim,p.marker);
  for(const v of (ramp.children[0] as Entity).render!.meshInstances)v.material=p.road;
  for(const marker of ledges)
@@ -292,7 +303,9 @@ function spawnActor(item:SpawnItem,earlyProgress?:number){
   (item.shape==='sphere'?mats.loot:mats.lootBox):
   (item.shape==='sphere'?(item.slot%2?mats.rockDark:mats.rock):
    item.giant?mats.rockDark:item.size[1]>item.size[0]?mats.rectangle:mats.crate);
- const e=item.shape==='table'||item.shape==='chair'?
+ const e=isHollowShape(item.shape)?
+  makeHollowFrame(app,item,position,mats.crate,mats.gold):
+  item.shape==='table'||item.shape==='chair'?
   makeFurniture(app,item,position,
     item.shape==='table'?mats.furniture:mats.chair):
   isComplexShape(item.shape)?
@@ -319,7 +332,7 @@ function spawnActor(item:SpawnItem,earlyProgress?:number){
  if(item.shape==='barrel')barrelSpawned++;
  if(item.shape==='beam')beamSpawned++;
  if(item.shape==='bouncer')bouncerSpawned++;
- if(isComplexShape(item.shape))complexSpawned++;
+ if(isComplexShape(item.shape)||isHollowShape(item.shape))complexSpawned++;
  active.push({item,entity:e,bornAt:elapsed,original:collectRenders(e),ghostTier:0});
  if(item.shape==='table'||item.shape==='chair'){
   furnitureSpawned++;
@@ -348,12 +361,18 @@ function streamSpawns(){
  if(elapsed>=spawnNextAt&&pending.length<58){
   const wave=makeWave(infiniteMode?currentSpec.waveSeed:WAVE_SEED,spawnWaveIndex++);
   patterns[wave.pattern]++;spawnWaves++;
-  for(const item of wave.items)pending.push({
-   item:infiniteMode?refineInfiniteItem(item,currentSpec.waveSeed,currentSpec.biome):item,
-   at:elapsed+item.delay});
-  // Lower the physical danger density but preserve visually rich mixed bursts.
-  spawnNextAt=elapsed+(infiniteMode?
-   (spawnWaves%5===0?.78:1.02):(spawnWaves%5===0?.78:1.18));
+  const dir=infiniteMode?directedWave({...wave,items:wave.items.map(item=>
+   refineInfiniteItem(item,currentSpec.waveSeed,currentSpec.biome))},
+   currentSpec.waveSeed,slopePosition(player.getPosition()).progress,
+   currentSpec.biome):null;
+  if(dir){
+   activeSectionRole=dir.role;waveSections[dir.role]++;
+  }
+  for(const item of (dir?.items??wave.items))
+   pending.push({item,at:elapsed+item.delay});
+  // 1-4 readable actors per wave with genuine spatial recovery windows.
+  spawnNextAt=elapsed+(dir?.gap??
+   (spawnWaves%5===0?.78:1.18));
  }
  pending.sort((a,b)=>a.at-b.at);
  for(let i=0;i<pending.length;){
@@ -364,8 +383,10 @@ function streamSpawns(){
   const slotFree=job.item.kind==='rock'?liveRocks<limit:liveLoot<limit;
   // Complex compounds carry multiple real Bullet collision primitives.
   // Keep a strict active budget on low-end Android devices.
-  const compoundBudget=!isComplexShape(job.item.shape)||
-   active.filter(a=>isComplexShape(a.item.shape)).length<6;
+  const compoundBudget=!isComplexShape(job.item.shape)&&
+   !isHollowShape(job.item.shape)||
+   active.filter(a=>isComplexShape(a.item.shape)||
+    isHollowShape(a.item.shape)).length<7;
   const furnitureBudget=!infiniteMode||
    (job.item.shape!=='chair'&&job.item.shape!=='table')||
    active.filter(a=>a.item.shape==='chair'||a.item.shape==='table').length
@@ -423,55 +444,9 @@ player.collision!.on('collisionstart',(evt:{other:Entity})=>{
   }else message('ROCK IMPACT!');
  }
 });
-function reset(){
- disposeActors();
- if(infiniteMode)stageLevel();
- if(body.type!=='dynamic')body.type='dynamic';
- onSummit=false;summitContactPending=false;
- summitContactEvents=0;lastSummitContactProgress=0;
- ui.shop.hidden=true;ui.shopPanel.hidden=true;ui.summary.hidden=true;
- ui.start.hidden=false;root.classList.remove('summit');
- ui.start.textContent=infiniteMode?'CLIMB LEVEL '+save.level+' →':'CLIMB AGAIN →';
- phase='running';attempts++;elapsed=0;loot=0;hits=0;falls=0;contacts=0;
-
- spawnedTotal=0;destroyedTotal=0;spawnWaves=0;maxLive=0;
- liveRocks=0;liveLoot=0;peakRocks=0;peakLoot=0;spawnSkipped=0;
- heavyHits=0;giantsSpawned=0;maxRockMass=0;
- furnitureSpawned=0;lightPropsSpawned=0;lightImpacts=0;
- verifiedCompoundFurniture=0;minVerifiedGap=100;
- ghostedActors=0;peakGhosted=0;cameraOcclusionChecks=0;
- strongOcclusionEvents=0;lastSideControlFraction=1;
- lastOcclusionScan=-1e3;hazardMotionTicks=0;hazardSampleSpeed=0;
- totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
- prewarmedActors=0;prewarmedRocks=0;prewarmedLoot=0;
- gauntletActors=0;gauntletChairs=0;gauntletLoot=0;
- rushActors=0;rushChairs=0;
- noveltyActors=0;noveltyShapes=[];
- summitSwipeBlocked=0;summitOvershootRecoveries=0;
- hazardPurged=0;baseSafetyCatches=0;
- barrelSpawned=0;beamSpawned=0;bouncerSpawned=0;complexSpawned=0;
- magnetTicks=0;magnetEngagements=0;magnetActive=false;
- arrivalCameraBlend=0;
- for(const k of Object.keys(patterns) as Pattern[])patterns[k]=0;
- sideFlicks=0;forwardFlicks=0;maxForwardSpeed=0;
- appliedSwipeCount=0;lastAppliedSwipeMagnitude=0;
- setCharge(0);peakChargeLevel=0;lastWeightSwipeTime=-100;
- maximumChargedMass=BASE_PLAYER_MASS;massUpdateCount=0;
- speedCapActivations=0;chargedMediumImpacts=0;
- checkpointS=2;maxProgress=2;spawnNextAt=.2;spawnWaveIndex=0;
- swipeChain=0;lastSwipeEnd=-100;lastFlickTime=-100;
- pendingImpulse=0;pendingSideImpulse=0;
- body.teleport(...initial);
- body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
- // First rendered frame on the pad must already frame the physical ball.
- if(infiniteMode&&steepChaseMode){
-  const rest=baseCameraTransition({x:initial[0],y:initial[1],z:initial[2]});
-  camera.setPosition(...rest.camera);
-  camera.lookAt(new Vec3(...rest.focus));
-  focusProbe.set(...rest.focus);
- }
- if(infiniteMode){
-  // Eight pre-positioned dynamic objects simulate an avalanche already
+function primeRunActors(){
+ if(!infiniteMode)return;
+ // Eight pre-positioned dynamic objects simulate an avalanche already
   // moving when the player begins, so fast upward swipes encounter hazards.
   for(const pre of warmStartItems(currentSpec.waveSeed,currentSpec.biome)){
    spawnActor(pre.item,pre.progress);prewarmedActors++;
@@ -495,11 +470,83 @@ function reset(){
    spawnActor(pre.item,pre.progress);noveltyActors++;
    noveltyShapes.push(pre.item.shape);
   }
+ // Two hollow, open-through triangular/pyramid/box setpieces per level,
+ // physical gaps rather than extra solid wall-like debris.
+ for(const pre of frameSetpieces(currentSpec.waveSeed)){
+  spawnActor(pre.item,pre.progress);frameActors++;
+  frameOpenings.push(frameOpening(pre.item.shape as
+   'frame-cube'|'frame-rect'|'frame-pyramid'|'frame-triangle',
+   pre.item.size).width);
  }
+}
+function endIntro(skipped=false){
+ if(phase!=='intro')return;
+ if(skipped)introSkips++;
+ phase='running';
+ introElapsed=INTRO_SECONDS;
+ primeRunActors();
+ message('SWIPE UP TO CLIMB!');
+}
+function reset(){
+ disposeActors();
+ if(infiniteMode)stageLevel();
+ if(body.type!=='dynamic')body.type='dynamic';
+ onSummit=false;summitContactPending=false;
+ summitContactEvents=0;lastSummitContactProgress=0;
+ ui.shop.hidden=true;ui.shopPanel.hidden=true;ui.summary.hidden=true;
+ ui.start.hidden=false;root.classList.remove('summit');
+ ui.start.textContent=infiniteMode?'CLIMB LEVEL '+save.level+' →':'CLIMB AGAIN →';
+ const doIntro=shouldShowIntro(save.level,shownIntroLevel,introEnabled);
+ if(doIntro){shownIntroLevel=save.level;introCount++;}
+ phase=doIntro?'intro':'running';
+ introElapsed=0;
+ attempts++;elapsed=0;loot=0;hits=0;falls=0;contacts=0;
+
+ spawnedTotal=0;destroyedTotal=0;spawnWaves=0;maxLive=0;
+ liveRocks=0;liveLoot=0;peakRocks=0;peakLoot=0;spawnSkipped=0;
+ heavyHits=0;giantsSpawned=0;maxRockMass=0;
+ furnitureSpawned=0;lightPropsSpawned=0;lightImpacts=0;
+ verifiedCompoundFurniture=0;minVerifiedGap=100;
+ ghostedActors=0;peakGhosted=0;cameraOcclusionChecks=0;
+ strongOcclusionEvents=0;lastSideControlFraction=1;
+ lastOcclusionScan=-1e3;hazardMotionTicks=0;hazardSampleSpeed=0;
+ totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
+ prewarmedActors=0;prewarmedRocks=0;prewarmedLoot=0;
+ gauntletActors=0;gauntletChairs=0;gauntletLoot=0;
+ rushActors=0;rushChairs=0;
+ noveltyActors=0;noveltyShapes=[];
+ frameActors=0;frameOpenings=[];
+ activeSectionRole='open';
+ waveSections={open:0,weave:0,setpiece:0,frames:0,pile:0,recovery:0};
+ summitSwipeBlocked=0;summitOvershootRecoveries=0;
+ hazardPurged=0;baseSafetyCatches=0;
+ barrelSpawned=0;beamSpawned=0;bouncerSpawned=0;complexSpawned=0;
+ magnetTicks=0;magnetEngagements=0;magnetActive=false;
+ arrivalCameraBlend=0;
+ for(const k of Object.keys(patterns) as Pattern[])patterns[k]=0;
+ sideFlicks=0;forwardFlicks=0;maxForwardSpeed=0;
+ appliedSwipeCount=0;lastAppliedSwipeMagnitude=0;
+ setCharge(0);peakChargeLevel=0;lastWeightSwipeTime=-100;
+ maximumChargedMass=BASE_PLAYER_MASS;massUpdateCount=0;
+ speedCapActivations=0;chargedMediumImpacts=0;
+ checkpointS=2;maxProgress=2;spawnNextAt=.2;spawnWaveIndex=0;
+ swipeChain=0;lastSwipeEnd=-100;lastFlickTime=-100;
+ pendingImpulse=0;pendingSideImpulse=0;
+ body.teleport(...initial);
+ body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
+ // First rendered frame on the pad must already frame the physical ball.
+ if(infiniteMode&&steepChaseMode){
+  const rest=baseCameraTransition({x:initial[0],y:initial[1],z:initial[2]});
+  camera.setPosition(...rest.camera);
+  camera.lookAt(new Vec3(...rest.focus));
+  focusProbe.set(...rest.focus);
+ }
+ if(phase==='running')primeRunActors();
  ui.loot.textContent='0';ui.dialog.classList.add('hidden');
  if(infiniteMode)applySkin();
  root.classList.add('playing');
- message('SWIPE UP TO CLIMB!');
+ message(phase==='intro'?'COURSE PREVIEW · TAP TO SKIP':
+  'SWIPE UP TO CLIMB!');
 }
 function enterSummit(){
  if(!infiniteMode||phase!=='running'||!levelScene)return;
@@ -600,6 +647,7 @@ function requestFlick(direction:'up'|'left'|'right'){
 let pointerStart:{x:number;y:number;id:number}|null=null;
 
 window.addEventListener('pointerdown',e=>{
+ if(phase==='intro'){endIntro(true);return;}
  if(phase!=='running'||(e.target instanceof Element&&e.target.closest('#dialog')))return;
  pointerStart={x:e.clientX,y:e.clientY,id:e.pointerId};
 
@@ -614,6 +662,10 @@ window.addEventListener('pointerup',e=>{
 window.addEventListener('pointercancel',()=>{pointerStart=null;});
 window.addEventListener('blur',()=>{pointerStart=null;});
 window.addEventListener('keydown',e=>{
+ if(phase==='intro'&&(e.code==='Space'||e.code==='Enter'||
+  e.code==='ArrowUp'||e.code==='KeyW')){
+  e.preventDefault();endIntro(true);return;
+ }
  if((e.code==='Space'||e.code==='Enter')&&
  (phase==='ready'||phase==='complete')){e.preventDefault();reset();return;}
  if(e.code==='ArrowUp'||e.code==='KeyW'){
@@ -627,6 +679,17 @@ window.addEventListener('keydown',e=>{
 const forwardVelocity=(v:Vec3)=>v.y*SIN_SLOPE-v.z*COS_SLOPE;
 app.on('update',(dt:number)=>{
  const tick=Math.min(dt,.04);
+ if(phase==='intro'){
+  introElapsed=Math.min(INTRO_SECONDS,introElapsed+tick);
+  const pose=introPose(introElapsed,baseSpawn());
+  camera.setPosition(...pose.camera);
+  camera.lookAt(new Vec3(...pose.target));
+  focusProbe.set(...pose.target);
+  camera.camera!.fov=pose.fov;
+  ui.status.textContent='LEVEL '+save.level+' · COURSE PREVIEW · TAP TO SKIP';
+  if(introElapsed>=INTRO_SECONDS)endIntro();
+  return;
+ }
  const p=player.getPosition(),v=body.linearVelocity;
  const frame=slopePosition(p);
  if(phase==='running'){
@@ -725,7 +788,10 @@ app.on('update',(dt:number)=>{
    pendingImpulse=0;pendingSideImpulse=0;
    message('SAFE BASE');
   }
-  const fell=infiniteMode?shouldRecoverInfinite(p):shouldRecover(p);
+  // The C1.8 personal flat starting deck projects below progress -8 in
+  // slope coordinates. The protected pad is valid ground, never a fall.
+  const fell=infiniteMode?(isInsideBaseCamp(p)?false:shouldRecoverInfinite(p)):
+   shouldRecover(p);
   if(fell&&(!summitApproach||offSummit)){
    falls++;
    // Infinite mode loses ALL climb progress; old C0.7 checkpoints remain.
@@ -930,6 +996,10 @@ window.__CLIMBER_TEST__={
   prewarmedActors,prewarmedRocks,prewarmedLoot,
   gauntletActors,gauntletChairs,gauntletLoot,rushActors,rushChairs,
   noveltyActors,noveltyShapes,summitSwipeBlocked,summitOvershootRecoveries,
+  introCount,introSkips,introElapsed,introDuration:INTRO_SECONDS,
+  shownIntroLevel,frameActors,frameOpenings,
+  activeSectionRole,waveSections,
+  sectionPlan:sectionPlan(currentSpec.waveSeed),
   rotorCount:rotorField?.count??0,
   rotorKinds:rotorField?.specs.map(p=>p.kind)??[],
   rotorPairs:rotorField?.specs.map(p=>({lane:p.lane??0,
@@ -938,6 +1008,8 @@ window.__CLIMBER_TEST__={
   rotorPassageWidth:rotorField?pairedRotorClearance(rotorField.specs):null,
   rotorTypes:rotorField?.types??[],
   baseCampExists:!!baseCamp,baseDeckType:baseCamp?.deck.rigidbody?.type??null,
+  starterPadType:baseCamp?.starterPad.rigidbody?.type??null,
+  starterPadPhysicalCount:baseCamp?.starterPhysicalCount??0,
   baseCampPhysicalCount:baseCamp?.physicalCount??0,
   baseCampVisualCount:baseCamp?.entityCount??0,
   baseDeckTop:infiniteMode?BASE_DECK_TOP:null,
@@ -952,6 +1024,12 @@ window.__CLIMBER_TEST__={
   barrelSpawned,beamSpawned,bouncerSpawned,complexSpawned,
   magnetTicks,magnetEngagements,magnetActive,arrivalCameraBlend,
   activeComplexCount:active.filter(a=>isComplexShape(a.item.shape)).length,
+  activeHollowBodies:active.filter(a=>isHollowShape(a.item.shape)&&
+   a.entity.collision?.type==='compound').length,
+  activeHollowColliderCounts:active.filter(a=>isHollowShape(a.item.shape))
+   .map(a=>a.entity.children.filter(e=>(e as Entity).collision).length),
+  activeHollowTypes:active.filter(a=>isHollowShape(a.item.shape))
+   .map(a=>a.entity.rigidbody?.type),
   activeShapes:[...new Set(active.map(a=>a.item.shape))],
   summitContactEvents,summitContactPending,
   lastSummitContactProgress,verifiedSummitArrivals,
