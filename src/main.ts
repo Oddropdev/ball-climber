@@ -444,55 +444,9 @@ player.collision!.on('collisionstart',(evt:{other:Entity})=>{
   }else message('ROCK IMPACT!');
  }
 });
-function reset(){
- disposeActors();
- if(infiniteMode)stageLevel();
- if(body.type!=='dynamic')body.type='dynamic';
- onSummit=false;summitContactPending=false;
- summitContactEvents=0;lastSummitContactProgress=0;
- ui.shop.hidden=true;ui.shopPanel.hidden=true;ui.summary.hidden=true;
- ui.start.hidden=false;root.classList.remove('summit');
- ui.start.textContent=infiniteMode?'CLIMB LEVEL '+save.level+' →':'CLIMB AGAIN →';
- phase='running';attempts++;elapsed=0;loot=0;hits=0;falls=0;contacts=0;
-
- spawnedTotal=0;destroyedTotal=0;spawnWaves=0;maxLive=0;
- liveRocks=0;liveLoot=0;peakRocks=0;peakLoot=0;spawnSkipped=0;
- heavyHits=0;giantsSpawned=0;maxRockMass=0;
- furnitureSpawned=0;lightPropsSpawned=0;lightImpacts=0;
- verifiedCompoundFurniture=0;minVerifiedGap=100;
- ghostedActors=0;peakGhosted=0;cameraOcclusionChecks=0;
- strongOcclusionEvents=0;lastSideControlFraction=1;
- lastOcclusionScan=-1e3;hazardMotionTicks=0;hazardSampleSpeed=0;
- totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
- prewarmedActors=0;prewarmedRocks=0;prewarmedLoot=0;
- gauntletActors=0;gauntletChairs=0;gauntletLoot=0;
- rushActors=0;rushChairs=0;
- noveltyActors=0;noveltyShapes=[];
- summitSwipeBlocked=0;summitOvershootRecoveries=0;
- hazardPurged=0;baseSafetyCatches=0;
- barrelSpawned=0;beamSpawned=0;bouncerSpawned=0;complexSpawned=0;
- magnetTicks=0;magnetEngagements=0;magnetActive=false;
- arrivalCameraBlend=0;
- for(const k of Object.keys(patterns) as Pattern[])patterns[k]=0;
- sideFlicks=0;forwardFlicks=0;maxForwardSpeed=0;
- appliedSwipeCount=0;lastAppliedSwipeMagnitude=0;
- setCharge(0);peakChargeLevel=0;lastWeightSwipeTime=-100;
- maximumChargedMass=BASE_PLAYER_MASS;massUpdateCount=0;
- speedCapActivations=0;chargedMediumImpacts=0;
- checkpointS=2;maxProgress=2;spawnNextAt=.2;spawnWaveIndex=0;
- swipeChain=0;lastSwipeEnd=-100;lastFlickTime=-100;
- pendingImpulse=0;pendingSideImpulse=0;
- body.teleport(...initial);
- body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
- // First rendered frame on the pad must already frame the physical ball.
- if(infiniteMode&&steepChaseMode){
-  const rest=baseCameraTransition({x:initial[0],y:initial[1],z:initial[2]});
-  camera.setPosition(...rest.camera);
-  camera.lookAt(new Vec3(...rest.focus));
-  focusProbe.set(...rest.focus);
- }
- if(infiniteMode){
-  // Eight pre-positioned dynamic objects simulate an avalanche already
+function primeRunActors(){
+ if(!infiniteMode)return;
+ // Eight pre-positioned dynamic objects simulate an avalanche already
   // moving when the player begins, so fast upward swipes encounter hazards.
   for(const pre of warmStartItems(currentSpec.waveSeed,currentSpec.biome)){
    spawnActor(pre.item,pre.progress);prewarmedActors++;
@@ -516,11 +470,83 @@ function reset(){
    spawnActor(pre.item,pre.progress);noveltyActors++;
    noveltyShapes.push(pre.item.shape);
   }
+ // Two hollow, open-through triangular/pyramid/box setpieces per level,
+ // physical gaps rather than extra solid wall-like debris.
+ for(const pre of frameSetpieces(currentSpec.waveSeed)){
+  spawnActor(pre.item,pre.progress);frameActors++;
+  frameOpenings.push(frameOpening(pre.item.shape as
+   'frame-cube'|'frame-rect'|'frame-pyramid'|'frame-triangle',
+   pre.item.size).width);
  }
+}
+function endIntro(skipped=false){
+ if(phase!=='intro')return;
+ if(skipped)introSkips++;
+ phase='running';
+ introElapsed=INTRO_SECONDS;
+ primeRunActors();
+ message('SWIPE UP TO CLIMB!');
+}
+function reset(){
+ disposeActors();
+ if(infiniteMode)stageLevel();
+ if(body.type!=='dynamic')body.type='dynamic';
+ onSummit=false;summitContactPending=false;
+ summitContactEvents=0;lastSummitContactProgress=0;
+ ui.shop.hidden=true;ui.shopPanel.hidden=true;ui.summary.hidden=true;
+ ui.start.hidden=false;root.classList.remove('summit');
+ ui.start.textContent=infiniteMode?'CLIMB LEVEL '+save.level+' →':'CLIMB AGAIN →';
+ const doIntro=shouldShowIntro(save.level,shownIntroLevel,introEnabled);
+ if(doIntro){shownIntroLevel=save.level;introCount++;}
+ phase=doIntro?'intro':'running';
+ introElapsed=0;
+ attempts++;elapsed=0;loot=0;hits=0;falls=0;contacts=0;
+
+ spawnedTotal=0;destroyedTotal=0;spawnWaves=0;maxLive=0;
+ liveRocks=0;liveLoot=0;peakRocks=0;peakLoot=0;spawnSkipped=0;
+ heavyHits=0;giantsSpawned=0;maxRockMass=0;
+ furnitureSpawned=0;lightPropsSpawned=0;lightImpacts=0;
+ verifiedCompoundFurniture=0;minVerifiedGap=100;
+ ghostedActors=0;peakGhosted=0;cameraOcclusionChecks=0;
+ strongOcclusionEvents=0;lastSideControlFraction=1;
+ lastOcclusionScan=-1e3;hazardMotionTicks=0;hazardSampleSpeed=0;
+ totalRock=0;totalLoot=0;totalBox=0;totalSphere=0;
+ prewarmedActors=0;prewarmedRocks=0;prewarmedLoot=0;
+ gauntletActors=0;gauntletChairs=0;gauntletLoot=0;
+ rushActors=0;rushChairs=0;
+ noveltyActors=0;noveltyShapes=[];
+ frameActors=0;frameOpenings=[];
+ activeSectionRole='open';
+ waveSections={open:0,weave:0,setpiece:0,frames:0,pile:0,recovery:0};
+ summitSwipeBlocked=0;summitOvershootRecoveries=0;
+ hazardPurged=0;baseSafetyCatches=0;
+ barrelSpawned=0;beamSpawned=0;bouncerSpawned=0;complexSpawned=0;
+ magnetTicks=0;magnetEngagements=0;magnetActive=false;
+ arrivalCameraBlend=0;
+ for(const k of Object.keys(patterns) as Pattern[])patterns[k]=0;
+ sideFlicks=0;forwardFlicks=0;maxForwardSpeed=0;
+ appliedSwipeCount=0;lastAppliedSwipeMagnitude=0;
+ setCharge(0);peakChargeLevel=0;lastWeightSwipeTime=-100;
+ maximumChargedMass=BASE_PLAYER_MASS;massUpdateCount=0;
+ speedCapActivations=0;chargedMediumImpacts=0;
+ checkpointS=2;maxProgress=2;spawnNextAt=.2;spawnWaveIndex=0;
+ swipeChain=0;lastSwipeEnd=-100;lastFlickTime=-100;
+ pendingImpulse=0;pendingSideImpulse=0;
+ body.teleport(...initial);
+ body.linearVelocity=new Vec3();body.angularVelocity=new Vec3();
+ // First rendered frame on the pad must already frame the physical ball.
+ if(infiniteMode&&steepChaseMode){
+  const rest=baseCameraTransition({x:initial[0],y:initial[1],z:initial[2]});
+  camera.setPosition(...rest.camera);
+  camera.lookAt(new Vec3(...rest.focus));
+  focusProbe.set(...rest.focus);
+ }
+ if(phase==='running')primeRunActors();
  ui.loot.textContent='0';ui.dialog.classList.add('hidden');
  if(infiniteMode)applySkin();
  root.classList.add('playing');
- message('SWIPE UP TO CLIMB!');
+ message(phase==='intro'?'COURSE PREVIEW · TAP TO SKIP':
+  'SWIPE UP TO CLIMB!');
 }
 function enterSummit(){
  if(!infiniteMode||phase!=='running'||!levelScene)return;
@@ -621,6 +647,7 @@ function requestFlick(direction:'up'|'left'|'right'){
 let pointerStart:{x:number;y:number;id:number}|null=null;
 
 window.addEventListener('pointerdown',e=>{
+ if(phase==='intro'){endIntro(true);return;}
  if(phase!=='running'||(e.target instanceof Element&&e.target.closest('#dialog')))return;
  pointerStart={x:e.clientX,y:e.clientY,id:e.pointerId};
 
@@ -635,6 +662,10 @@ window.addEventListener('pointerup',e=>{
 window.addEventListener('pointercancel',()=>{pointerStart=null;});
 window.addEventListener('blur',()=>{pointerStart=null;});
 window.addEventListener('keydown',e=>{
+ if(phase==='intro'&&(e.code==='Space'||e.code==='Enter'||
+  e.code==='ArrowUp'||e.code==='KeyW')){
+  e.preventDefault();endIntro(true);return;
+ }
  if((e.code==='Space'||e.code==='Enter')&&
  (phase==='ready'||phase==='complete')){e.preventDefault();reset();return;}
  if(e.code==='ArrowUp'||e.code==='KeyW'){
@@ -648,6 +679,17 @@ window.addEventListener('keydown',e=>{
 const forwardVelocity=(v:Vec3)=>v.y*SIN_SLOPE-v.z*COS_SLOPE;
 app.on('update',(dt:number)=>{
  const tick=Math.min(dt,.04);
+ if(phase==='intro'){
+  introElapsed=Math.min(INTRO_SECONDS,introElapsed+tick);
+  const pose=introPose(introElapsed,baseSpawn());
+  camera.setPosition(...pose.camera);
+  camera.lookAt(new Vec3(...pose.target));
+  focusProbe.set(...pose.target);
+  camera.camera!.fov=pose.fov;
+  ui.status.textContent='LEVEL '+save.level+' · COURSE PREVIEW · TAP TO SKIP';
+  if(introElapsed>=INTRO_SECONDS)endIntro();
+  return;
+ }
  const p=player.getPosition(),v=body.linearVelocity;
  const frame=slopePosition(p);
  if(phase==='running'){
@@ -951,6 +993,10 @@ window.__CLIMBER_TEST__={
   prewarmedActors,prewarmedRocks,prewarmedLoot,
   gauntletActors,gauntletChairs,gauntletLoot,rushActors,rushChairs,
   noveltyActors,noveltyShapes,summitSwipeBlocked,summitOvershootRecoveries,
+  introCount,introSkips,introElapsed,introDuration:INTRO_SECONDS,
+  shownIntroLevel,frameActors,frameOpenings,
+  activeSectionRole,waveSections,
+  sectionPlan:sectionPlan(currentSpec.waveSeed),
   rotorCount:rotorField?.count??0,
   rotorKinds:rotorField?.specs.map(p=>p.kind)??[],
   rotorPairs:rotorField?.specs.map(p=>({lane:p.lane??0,
@@ -959,6 +1005,8 @@ window.__CLIMBER_TEST__={
   rotorPassageWidth:rotorField?pairedRotorClearance(rotorField.specs):null,
   rotorTypes:rotorField?.types??[],
   baseCampExists:!!baseCamp,baseDeckType:baseCamp?.deck.rigidbody?.type??null,
+  starterPadType:baseCamp?.starterPad.rigidbody?.type??null,
+  starterPadPhysicalCount:baseCamp?.starterPhysicalCount??0,
   baseCampPhysicalCount:baseCamp?.physicalCount??0,
   baseCampVisualCount:baseCamp?.entityCount??0,
   baseDeckTop:infiniteMode?BASE_DECK_TOP:null,
