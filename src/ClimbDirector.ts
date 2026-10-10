@@ -11,7 +11,7 @@ export const SECTION_EDGES=[0,9,18,27,37,47,60] as const;
 export function sectionPlan(seed:number):Section[]{
  const r=makeRng((seed^0x18cc1188)>>>0);
  const mid:SectionRole[]=r()<.5?
-  ['weave','setpiece','frames','pile']:['frames','setpiece','weave','pile'];
+  ['weave','setpiece','frames','pile']:['setpiece','weave','frames','pile'];
  return ['open',...mid,'recovery'].map((role,i)=>({
   role:role as SectionRole,start:SECTION_EDGES[i]!,
   end:SECTION_EDGES[i+1]!
