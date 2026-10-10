@@ -788,7 +788,10 @@ app.on('update',(dt:number)=>{
    pendingImpulse=0;pendingSideImpulse=0;
    message('SAFE BASE');
   }
-  const fell=infiniteMode?shouldRecoverInfinite(p):shouldRecover(p);
+  // The C1.8 personal flat starting deck projects below progress -8 in
+  // slope coordinates. The protected pad is valid ground, never a fall.
+  const fell=infiniteMode?(isInsideBaseCamp(p)?false:shouldRecoverInfinite(p)):
+   shouldRecover(p);
   if(fell&&(!summitApproach||offSummit)){
    falls++;
    // Infinite mode loses ALL climb progress; old C0.7 checkpoints remain.
@@ -1021,6 +1024,12 @@ window.__CLIMBER_TEST__={
   barrelSpawned,beamSpawned,bouncerSpawned,complexSpawned,
   magnetTicks,magnetEngagements,magnetActive,arrivalCameraBlend,
   activeComplexCount:active.filter(a=>isComplexShape(a.item.shape)).length,
+  activeHollowBodies:active.filter(a=>isHollowShape(a.item.shape)&&
+   a.entity.collision?.type==='compound').length,
+  activeHollowColliderCounts:active.filter(a=>isHollowShape(a.item.shape))
+   .map(a=>a.entity.children.filter(e=>(e as Entity).collision).length),
+  activeHollowTypes:active.filter(a=>isHollowShape(a.item.shape))
+   .map(a=>a.entity.rigidbody?.type),
   activeShapes:[...new Set(active.map(a=>a.item.shape))],
   summitContactEvents,summitContactPending,
   lastSummitContactProgress,verifiedSummitArrivals,
